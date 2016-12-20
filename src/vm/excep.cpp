@@ -20,7 +20,7 @@
 #include "cgensys.h"
 #include "comutilnative.h"
 #include "siginfo.hpp"
-#include "gc.h"
+#include "gcheaputilities.h"
 #include "eedbginterfaceimpl.h" //so we can clearexception in RealCOMPlusThrow
 #include "perfcounters.h"
 #include "dllimportcallback.h"
@@ -1679,7 +1679,7 @@ bool FinallyIsUnwinding(EHRangeTreeNode *pNode,
 BOOL LeaveCatch(ICodeManager* pEECM,
                 Thread *pThread,
                 CONTEXT *pCtx,
-                void *methodInfoPtr,
+                GCInfoToken gcInfoToken,
                 unsigned offset)
 {
     CONTRACTL
@@ -1690,6 +1690,7 @@ BOOL LeaveCatch(ICodeManager* pEECM,
     }
     CONTRACTL_END;
 
+#ifndef FEATURE_PAL
     // We can assert these things here, and skip a call
     // to COMPlusCheckForAbort later.
 
@@ -1703,10 +1704,14 @@ BOOL LeaveCatch(ICodeManager* pEECM,
     PopNestedExceptionRecords(esp, pCtx, pThread->GetExceptionListPtr());
 
     // Do JIT-specific work
-    pEECM->LeaveCatch(methodInfoPtr, offset, pCtx);
+    pEECM->LeaveCatch(gcInfoToken, offset, pCtx);
 
     SetSP(pCtx, (UINT_PTR)esp);
     return TRUE;
+#else // FEATURE_PAL
+    PORTABILITY_ASSERT("LeaveCatch");
+    return FALSE;
+#endif
 }
 #endif // WIN64EXCEPTIONS
 
@@ -1762,7 +1767,7 @@ HRESULT IsLegalTransition(Thread *pThread,
                           ICodeManager* pEECM,
                           PREGDISPLAY pReg,
                           SLOT addrStart,
-                          void *methodInfoPtr,
+                          GCInfoToken gcInfoToken,
                           PCONTEXT pCtx)
 {
     CONTRACTL
@@ -1875,7 +1880,7 @@ HRESULT IsLegalTransition(Thread *pThread,
                         if (!LeaveCatch(pEECM,
                                         pThread,
                                         pFilterCtx,
-                                        methodInfoPtr,
+                                        gcInfoToken,
                                         offFrom))
                             return E_FAIL;
                     }
@@ -1930,7 +1935,7 @@ HRESULT IsLegalTransition(Thread *pThread,
 
                         if (!fCanSetIPOnly)
                         {
-                            if (!pEECM->LeaveFinally(methodInfoPtr,
+                            if (!pEECM->LeaveFinally(gcInfoToken,
                                                      offFrom,
                                                      pFilterCtx))
                                 return E_FAIL;
@@ -2041,7 +2046,7 @@ HRESULT SetIPFromSrcToDst(Thread *pThread,
     EECodeInfo codeInfo((TADDR)(addrStart));
 
     ICodeManager * pEECM = codeInfo.GetCodeManager();
-    LPVOID methodInfoPtr = codeInfo.GetGCInfo();
+    GCInfoToken gcInfoToken = codeInfo.GetGCInfoToken();
 
     // Do both checks here so compiler doesn't complain about skipping
     // initialization b/c of goto.
@@ -2097,7 +2102,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               methodInfoPtr,
+                               gcInfoToken,
                                pCtx);
 
         if (FAILED(hr))
@@ -2120,7 +2125,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               methodInfoPtr,
+                               gcInfoToken,
                                pCtx);
 
         if (FAILED(hr))
@@ -2143,7 +2148,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               methodInfoPtr,
+                               gcInfoToken,
                                pCtx);
 
         if (FAILED(hr))
@@ -7313,8 +7318,8 @@ AdjustContextForWriteBarrier(
 
     void* f_IP = (void *)GetIP(pContext);
 
-    if (f_IP >= (void *) JIT_WriteBarrierStart && f_IP <= (void *) JIT_WriteBarrierLast ||
-        f_IP >= (void *) JIT_PatchedWriteBarrierStart && f_IP <= (void *) JIT_PatchedWriteBarrierLast)
+    if (((f_IP >= (void *) JIT_WriteBarrierStart) && (f_IP <= (void *) JIT_WriteBarrierLast)) ||
+        ((f_IP >= (void *) JIT_PatchedWriteBarrierStart) && (f_IP <= (void *) JIT_PatchedWriteBarrierLast)))
     {
         // set the exception IP to be the instruction that called the write barrier
         void* callsite = (void *)GetAdjustedCallAddress(*dac_cast<PTR_PCODE>(GetSP(pContext)));
@@ -8678,10 +8683,6 @@ void UnwindAndContinueRethrowHelperInsideCatch(Frame* pEntryFrame, Exception* pE
     // policy here. Do we want to let such funcitons throw, etc.? Right now, we believe that there are no such
     // frames on the stack to be unwound, so the SetFrame is alright (see the first comment above.) At the very
     // least, we should add some way to assert that.
-    //
-    // ~FrameWithCookieHolder is also calling SetFrame() and if UnwindAndContinueRethrowHelperInsideCatch is ever changed
-    // to not call SetFrame then the change should be reflected in the FrameWithCookieHolder as well.
-    //
     pThread->SetFrame(pEntryFrame);
 
 #ifdef _DEBUG
@@ -9920,47 +9921,48 @@ PTR_EHWatsonBucketTracker GetWatsonBucketTrackerForPreallocatedException(OBJECTR
         goto doValidation;
     }
 
-    // Find the reference to the exception tracker corresponding to the preallocated exception,
-    // starting the search from the current exception tracker (2nd arg of NULL specifies that).
-#if defined(WIN64EXCEPTIONS)
-    PTR_ExceptionTracker pEHTracker = NULL;
-    PTR_ExceptionTracker pPreviousEHTracker = NULL;
+    {
+        // Find the reference to the exception tracker corresponding to the preallocated exception,
+        // starting the search from the current exception tracker (2nd arg of NULL specifies that).
+ #if defined(WIN64EXCEPTIONS)
+        PTR_ExceptionTracker pEHTracker = NULL;
+        PTR_ExceptionTracker pPreviousEHTracker = NULL;
 
 #elif _TARGET_X86_
-    PTR_ExInfo pEHTracker = NULL;
-    PTR_ExInfo pPreviousEHTracker = NULL;
+        PTR_ExInfo pEHTracker = NULL;
+        PTR_ExInfo pPreviousEHTracker = NULL;
 #else // !(_WIN64 || _TARGET_X86_)
 #error Unsupported platform
 #endif // _WIN64
 
-    if (fStartSearchFromPreviousTracker)
-    {
-        // Get the exception tracker previous to the current one
-        pPreviousEHTracker = GetThread()->GetExceptionState()->GetCurrentExceptionTracker()->GetPreviousExceptionTracker();
-
-        // If there is no previous tracker to start from, then simply abort the search attempt.
-        // If we couldnt find the exception tracker, then buckets are not available
-        if (pPreviousEHTracker == NULL)
+        if (fStartSearchFromPreviousTracker)
         {
-            LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find the previous EHTracker to start the search from.\n"));
+            // Get the exception tracker previous to the current one
+            pPreviousEHTracker = GetThread()->GetExceptionState()->GetCurrentExceptionTracker()->GetPreviousExceptionTracker();
+
+            // If there is no previous tracker to start from, then simply abort the search attempt.
+            // If we couldnt find the exception tracker, then buckets are not available
+            if (pPreviousEHTracker == NULL)
+            {
+                LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find the previous EHTracker to start the search from.\n"));
+                pWBTracker = NULL;
+                goto done;
+            }
+        }
+
+        pEHTracker = GetEHTrackerForPreallocatedException(gc.oPreAllocThrowable, pPreviousEHTracker);
+
+        // If we couldnt find the exception tracker, then buckets are not available
+        if (pEHTracker == NULL)
+        {
+            LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find EHTracker for preallocated exception object.\n"));
             pWBTracker = NULL;
             goto done;
         }
+
+        // Get the Watson Bucket Tracker from the exception tracker
+        pWBTracker = pEHTracker->GetWatsonBucketTracker();
     }
-
-    pEHTracker = GetEHTrackerForPreallocatedException(gc.oPreAllocThrowable, pPreviousEHTracker);
-
-    // If we couldnt find the exception tracker, then buckets are not available
-    if (pEHTracker == NULL)
-    {
-        LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find EHTracker for preallocated exception object.\n"));
-        pWBTracker = NULL;
-        goto done;
-    }
-
-    // Get the Watson Bucket Tracker from the exception tracker
-    pWBTracker = pEHTracker->GetWatsonBucketTracker();
-
 doValidation:
     _ASSERTE(pWBTracker != NULL);
 
@@ -12200,7 +12202,7 @@ done:
 // CE can be caught in the VM and later reraised again. Examples of such scenarios
 // include AD transition, COM interop, Reflection invocation, to name a few.
 // In such cases, we want to mark the corruption severity for reuse upon reraise,
-// implying that when the VM does a reraise of such a exception, we should use
+// implying that when the VM does a reraise of such an exception, we should use
 // the original corruption severity for the new raised exception, instead of creating
 // a new one for it.
 /* static */
@@ -12916,15 +12918,6 @@ void ExceptionNotifications::DeliverNotificationInternal(ExceptionNotificationHa
     // Get the current AppDomain
     AppDomain *pCurDomain = GetAppDomain();
     _ASSERTE(pCurDomain != NULL);
-
-#ifdef FEATURE_CORECLR
-    if (true)
-    {
-        // On CoreCLR, we dont support enhanced exception notifications
-        _ASSERTE(!"CoreCLR does not support enhanced exception notifications!");
-        return;
-    }
-#endif // FEATURE_CORECLR
 
     struct
     {

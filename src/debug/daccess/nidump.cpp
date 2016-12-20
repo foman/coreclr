@@ -1179,19 +1179,20 @@ NativeImageDumper::DumpNativeImage()
                 break;
             }
         }
+        
         //If we're actually dumping mscorlib, remap the mscorlib dependency to our own native image.
-        if( mscorlib == NULL || !wcscmp(m_name, W("mscorlib")) )
+        if( (mscorlib == NULL) || !wcscmp(m_name, CoreLibName_W))
         {
             mscorlib = GetDependency(0);
             mscorlib->fIsMscorlib = TRUE;
             _ASSERTE(mscorlib->fIsHardbound);
         }
+
+        _ASSERTE(mscorlib != NULL);
         if( mscorlib->fIsHardbound )
         {
             m_isMscorlibHardBound = true;
         }
-
-        _ASSERTE(mscorlib != NULL);
         if( m_isMscorlibHardBound )
         {
             //go through the module to the binder.
@@ -2445,7 +2446,7 @@ mdAssemblyRef NativeImageDumper::MapAssemblyRefToManifest(mdAssemblyRef token, I
                 ret = currentRef;
                 break;
             }
-            else if (wcscmp(szAssemblyName, W("mscorlib")) == 0)
+            else if (wcscmp(szAssemblyName, CoreLibName_W) == 0)
             {
                 // Mscorlib is special - version number and public key token are ignored.
                 ret = currentRef;
@@ -2658,7 +2659,7 @@ NativeImageDumper::Dependency *NativeImageDumper::OpenDependency(int index)
             Dependency& dependency = m_dependencies[index];
             AppendTokenName(entry->dwAssemblyRef, buf, m_manifestImport, true);
             bool isHardBound = !!(entry->signNativeImage != INVALID_NGEN_SIGNATURE);
-            SString mscorlibStr(SString::Literal, W("mscorlib"));
+            SString mscorlibStr(SString::Literal, CoreLibName_W);
             bool isMscorlib = (0 == buf.Compare( mscorlibStr ));
             dependency.fIsHardbound = isHardBound;
             wcscpy_s(dependency.name, _countof(dependency.name),
@@ -3092,7 +3093,8 @@ void NativeImageDumper::DumpCompleteMethod(PTR_Module module, MethodIterator& mi
     unsigned gcInfoSize = UINT_MAX;
 
     //parse GCInfo for size information.
-    PTR_CBYTE gcInfo = dac_cast<PTR_CBYTE>(mi.GetGCInfo());
+    GCInfoToken gcInfoToken = mi.GetGCInfoToken();
+    PTR_CBYTE gcInfo = dac_cast<PTR_CBYTE>(gcInfoToken.Info);
 
     void (* stringOutFn)(const char *, ...);
     IF_OPT(GC_INFO)
@@ -3107,10 +3109,10 @@ void NativeImageDumper::DumpCompleteMethod(PTR_Module module, MethodIterator& mi
     {
         PTR_CBYTE curGCInfoPtr = gcInfo;
         g_holdStringOutData.Clear();
-        GCDump gcDump;
+        GCDump gcDump(gcInfoToken.Version);
         gcDump.gcPrintf = stringOutFn;
 #if !defined(_TARGET_X86_) && defined(USE_GC_INFO_DECODER)
-        GcInfoDecoder gcInfoDecoder(curGCInfoPtr, DECODE_CODE_LENGTH, 0);
+        GcInfoDecoder gcInfoDecoder(gcInfoToken, DECODE_CODE_LENGTH);
         methodSize = gcInfoDecoder.GetCodeLength();
 #endif
 
@@ -4086,6 +4088,7 @@ void NativeImageDumper::DumpModule( PTR_Module module )
                  (int)(module->m_maxDynamicEntries
                  * sizeof(*(module->m_pDynamicStaticsInfo))));
 
+#ifdef FEATURE_CER
     DisplayWriteFieldInt( m_dwReliabilityContract,
                           module->m_dwReliabilityContract, Module, MODULE );
 
@@ -4103,6 +4106,7 @@ void NativeImageDumper::DumpModule( PTR_Module module )
                            offsetof(Module, m_pCerNgenRootTable),
                            fieldsize(Module, m_pCerNgenRootTable) );
     }
+#endif
 
 
     _ASSERTE(module->m_debuggerSpecificData.m_pDynamicILCrst == NULL);
@@ -4133,10 +4137,8 @@ void NativeImageDumper::DumpModule( PTR_Module module )
     //file
     //assembly
 
-#if !defined(FEATURE_CORECLR)
     DisplayWriteFieldInt( m_DefaultDllImportSearchPathsAttributeValue,
                           module->m_DefaultDllImportSearchPathsAttributeValue, Module, MODULE );
-#endif // !FEATURE_CORECLR
 
 
     DisplayEndStructure(MODULE); //Module
@@ -4152,6 +4154,7 @@ bool NativeImageDumper::isPrecode(TADDR maybePrecode)
     return !!module->IsZappedPrecode(maybePrecode);
 }
 
+#ifdef FEATURE_CER
 void NativeImageDumper::DumpNgenRootTable( PTR_CerNgenRootTable table,
                                            const char * name, unsigned offset,
                                            unsigned fieldSize )
@@ -4231,6 +4234,8 @@ void NativeImageDumper::DumpNgenRootTable( PTR_CerNgenRootTable table,
 
     DisplayEndStructure( MODULE ); //CERNgenRootTable
 }
+#endif // FEATURE_CER
+
 void NativeImageDumper::IterateTypeDefToMTCallback( TADDR mtTarget,
                                                     TADDR flags,
                                                     PTR_LookupMapBase map,
@@ -5683,7 +5688,7 @@ NativeImageDumper::EnumMnemonics s_MTFlagsLow[] =
 #if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING_ITF)
     MTFLAG_ENTRY(IsRegStructPassed),
 #endif // FEATURE_UNIX_AMD64_STRUCT_PASSING_ITF
-    MTFLAG_ENTRY(UNUSED_ComponentSize_4),
+    MTFLAG_ENTRY(IsByRefLike),
     MTFLAG_ENTRY(UNUSED_ComponentSize_5),
     MTFLAG_ENTRY(UNUSED_ComponentSize_6),
     MTFLAG_ENTRY(UNUSED_ComponentSize_7),
@@ -5930,7 +5935,6 @@ static NativeImageDumper::EnumMnemonics s_VMFlags[] =
         VMF_ENTRY(NO_GUID),
         VMF_ENTRY(HASNONPUBLICFIELDS),
         VMF_ENTRY(REMOTING_PROXY_ATTRIBUTE),
-        VMF_ENTRY(CONTAINS_STACK_PTR),        
         VMF_ENTRY(PREFER_ALIGN8),
         VMF_ENTRY(METHODS_REQUIRE_INHERITANCE_CHECKS),
 
@@ -9035,12 +9039,14 @@ NativeImageDumper::DumpEEClassForMethodTable( PTR_MethodTable mt )
         DisplayWriteFieldInt( m_cbModuleDynamicID, pClassOptional->m_cbModuleDynamicID,
                               EEClassOptionalFields, EECLASSES );
 
+#ifdef FEATURE_CER
         /* REVISIT_TODO Fri 10/14/2005
          * Use the macros from ConstrainedExecutionRegion.cpp on this?
          */
         DisplayWriteFieldUInt( m_dwReliabilityContract,
                                clazz->GetReliabilityContract(),
                                EEClassOptionalFields, EECLASSES );
+#endif
 
         DisplayWriteFieldEnumerated( m_SecProps, clazz->GetSecurityProperties()->dwFlags,
                                      EEClassOptionalFields, s_SecurityProperties, W("|"),
@@ -9315,7 +9321,7 @@ void NativeImageDumper::DumpReadyToRun()
     if (pRuntimeFunctionsDir != NULL)
     {
         m_pRuntimeFunctions = dac_cast<PTR_RUNTIME_FUNCTION>(m_decoder.GetDirectoryData(pRuntimeFunctionsDir));
-        m_nRuntimeFunctions = pRuntimeFunctionsDir->Size / sizeof(RUNTIME_FUNCTION);
+        m_nRuntimeFunctions = pRuntimeFunctionsDir->Size / sizeof(T_RUNTIME_FUNCTION);
     }
     else
     {
@@ -9324,7 +9330,7 @@ void NativeImageDumper::DumpReadyToRun()
 
     IMAGE_DATA_DIRECTORY * pEntryPointsDir = FindReadyToRunSection(READYTORUN_SECTION_METHODDEF_ENTRYPOINTS);
     if (pEntryPointsDir != NULL)
-        m_methodDefEntryPoints = NativeFormat::NativeArray(&m_nativeReader, pEntryPointsDir->VirtualAddress);
+        m_methodDefEntryPoints = NativeFormat::NativeArray((TADDR)&m_nativeReader, pEntryPointsDir->VirtualAddress);
 
     DisplayStartCategory("NativeInfo", NATIVE_INFO);
 
@@ -9438,10 +9444,14 @@ void NativeImageDumper::DumpReadyToRunMethod(PCODE pEntryPoint, PTR_RUNTIME_FUNC
     {
         PTR_CBYTE curGCInfoPtr = gcInfo;
         g_holdStringOutData.Clear();
-        GCDump gcDump;
+        GCDump gcDump(GCINFO_VERSION);
         gcDump.gcPrintf = stringOutFn;
+        UINT32 r2rversion = m_pReadyToRunHeader->MajorVersion;
+        UINT32 gcInfoVersion = GCInfoToken::ReadyToRunVersionToGcInfoVersion(r2rversion);
+        GCInfoToken gcInfoToken = { curGCInfoPtr, gcInfoVersion };
+
 #if !defined(_TARGET_X86_) && defined(USE_GC_INFO_DECODER)
-        GcInfoDecoder gcInfoDecoder(curGCInfoPtr, DECODE_CODE_LENGTH, 0);
+        GcInfoDecoder gcInfoDecoder(gcInfoToken, DECODE_CODE_LENGTH);
         methodSize = gcInfoDecoder.GetCodeLength();
 #endif
 
@@ -9540,8 +9550,10 @@ mdTypeRef NativeImageDumper::FindTypeRefForMT( PTR_MethodTable mt )
 #undef GC_NOTRIGGER
 
 #if defined _DEBUG && defined _TARGET_X86_ 
+#ifdef _MSC_VER
 // disable FPO for checked build
 #pragma optimize("y", off)
+#endif // _MSC_VER
 #endif
 
 #undef _ASSERTE

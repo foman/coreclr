@@ -43,7 +43,8 @@
 #include "system.h"
 #include "comutilnative.h"
 #include "comsynchronizable.h"
-#include "floatclass.h"
+#include "floatdouble.h"
+#include "floatsingle.h"
 #include "decimal.h"
 #include "currency.h"
 #include "comdatetime.h"
@@ -88,9 +89,9 @@
 #include "mdaassistants.h"
 #endif
 
-#if defined(FEATURE_CRYPTO) || defined(FEATURE_LEGACYNETCFCRYPTO)
+#ifdef FEATURE_CRYPTO
 #include "cryptography.h"
-#endif // FEATURE_CRYPTO || FEATURE_LEGACYNETCFCRYPTO
+#endif // FEATURE_CRYPTO
 
 #ifndef FEATURE_CORECLR
 #include "securityprincipal.h"
@@ -131,10 +132,7 @@
 #endif
 
 #if defined(FEATURE_EVENTSOURCE_XPLAT)
-
-#define __EVENTTRACEPRIV_H__
-#include "eventtracepriv.h"
-#undef __EVENTTRACEPRIV_H__
+#include "nativeeventsource.h"
 #endif //defined(FEATURE_EVENTSOURCE_XPLAT)
 
 #endif // CROSSGEN_MSCORLIB

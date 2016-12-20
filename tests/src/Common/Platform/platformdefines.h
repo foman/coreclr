@@ -24,6 +24,8 @@
 typedef unsigned error_t;
 typedef HANDLE THREAD_ID;
 
+#define DLL_EXPORT __declspec(dllexport)
+
 #else // !WINDOWS
 #include <pthread.h>
 
@@ -41,8 +43,11 @@ typedef const WCHAR *LPCWSTR, *PCWSTR;
 #define FALSE 0
 #endif
 
-#define WINAPI   _cdecl
-#ifndef __stdcall
+#ifndef WINAPI
+#define WINAPI  __stdcall
+#endif
+
+#ifndef _MSC_VER
 #if __i386__
 #define __stdcall __attribute__((stdcall))
 #define _cdecl __attribute__((cdecl))
@@ -50,6 +55,12 @@ typedef const WCHAR *LPCWSTR, *PCWSTR;
 #define __stdcall
 #define _cdecl
 #endif
+#endif
+
+#if __GNUC__ >= 4
+#define DLL_EXPORT __attribute__ ((visibility ("default")))
+#else
+#define DLL_EXPORT
 #endif
 
 LPWSTR HackyConvertToWSTR(char* pszInput);
@@ -61,7 +72,7 @@ LPWSTR HackyConvertToWSTR(char* pszInput);
 
 typedef pthread_t THREAD_ID;
 typedef void* (*MacWorker)(void*);
-typedef DWORD (*LPTHREAD_START_ROUTINE)(void*);
+typedef DWORD __stdcall (*LPTHREAD_START_ROUTINE)(void*);
 #ifdef UNICODE
 typedef WCHAR TCHAR;
 #else // ANSI
@@ -76,7 +87,7 @@ typedef void* HMODULE;
 typedef void* ULONG_PTR;
 typedef unsigned error_t;
 typedef void* LPVOID;
-typedef char BYTE;
+typedef unsigned char BYTE;
 typedef WCHAR OLECHAR;
 #endif
 
@@ -86,7 +97,7 @@ typedef WCHAR OLECHAR;
 error_t TP_scpy_s(LPWSTR strDestination, size_t sizeInWords, LPCWSTR strSource);
 error_t TP_scat_s(LPWSTR strDestination, size_t sizeInWords, LPCWSTR strSource);
 int TP_slen(LPWSTR str);
-int TP_scmp_s(LPSTR str1, LPSTR str2);
+int TP_scmp_s(LPCSTR str1, LPCSTR str2);
 int TP_wcmp_s(LPWSTR str1, LPWSTR str2);
 error_t TP_getenv_s(size_t* pReturnValue, LPWSTR buffer, size_t sizeInWords, LPCWSTR varname);
 error_t TP_putenv_s(LPTSTR name, LPTSTR value);

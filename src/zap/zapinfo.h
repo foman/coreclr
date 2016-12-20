@@ -227,9 +227,11 @@ class ZapInfo
     LoadTable<CORINFO_CLASS_HANDLE>  m_ClassLoadTable;
     LoadTable<CORINFO_METHOD_HANDLE> m_MethodLoadTable;
 
+    CORJIT_FLAGS m_jitFlags;
+
     void InitMethodName();
 
-    int ComputeJitFlags(CORINFO_METHOD_HANDLE handle);
+    CORJIT_FLAGS ComputeJitFlags(CORINFO_METHOD_HANDLE handle);
 
     ZapDebugInfo * EmitDebugInfo();
     ZapGCInfo * EmitGCInfo();
@@ -250,16 +252,6 @@ class ZapInfo
                           BOOL fAllowThunk);
 
 public:
-#ifdef BINDER
-    void PublishCompiledMethod(mdToken methodDefToken, CORINFO_METHOD_HANDLE methodHandle)
-    {
-        m_currentMethodToken = methodDefToken;
-        m_currentMethodHandle = methodHandle;
-        
-        PublishCompiledMethod();
-    }
-#endif
-
     ZapInfo(ZapImage * pImage, mdMethodDef md, CORINFO_METHOD_HANDLE handle, CORINFO_MODULE_HANDLE module, unsigned methodProfilingDataFlags);
     ~ZapInfo();
 
@@ -326,6 +318,8 @@ public:
             ULONG * numRuns);
 
     DWORD getJitFlags(CORJIT_FLAGS* jitFlags, DWORD sizeInBytes);
+
+    bool runWithErrorTrap(void (*function)(void*), void* param);
 
     // ICorDynamicInfo
 
@@ -554,9 +548,16 @@ public:
     CorInfoHelpFunc getBoxHelper(CORINFO_CLASS_HANDLE cls);
     CorInfoHelpFunc getUnBoxHelper(CORINFO_CLASS_HANDLE cls);
 
-    void getReadyToRunHelper(
-            CORINFO_RESOLVED_TOKEN * pResolvedToken,
-            CorInfoHelpFunc          id,
+    bool getReadyToRunHelper(
+            CORINFO_RESOLVED_TOKEN *        pResolvedToken,
+            CORINFO_LOOKUP_KIND *           pGenericLookupKind,
+            CorInfoHelpFunc                 id,
+            CORINFO_CONST_LOOKUP *          pLookup
+            );
+
+    void getReadyToRunDelegateCtorHelper(
+            CORINFO_RESOLVED_TOKEN * pTargetMethod,
+            CORINFO_CLASS_HANDLE     delegateType,
             CORINFO_CONST_LOOKUP *   pLookup
             );
 
@@ -591,6 +592,7 @@ public:
     // ICorModuleInfo
 
     void resolveToken(CORINFO_RESOLVED_TOKEN * pResolvedToken);
+    bool tryResolveToken(CORINFO_RESOLVED_TOKEN * pResolvedToken);
 
     void findSig(CORINFO_MODULE_HANDLE module, unsigned sigTOK,
                  CORINFO_CONTEXT_HANDLE context,

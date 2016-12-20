@@ -43,7 +43,6 @@ public:
     static const UINT16 INVALID_SLOT_INDEX = static_cast<UINT16>(-1);
     static const UINT16 MAX_SLOT_INDEX = static_cast<UINT16>(-1) - 10;
 
-#ifndef BINDER
     // Information gathered by the class loader relating to generics
     // Fields in this structure are initialized very early in class loading
     // See code:ClassLoader.CreateTypeHandleForTypeDefThrowing
@@ -220,7 +219,6 @@ private:
     void SetIsComClassInterface() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetIsComClassInterface(); } 
 #endif // FEATURE_COMINTEROP
     BOOL IsEnum() { WRAPPER_NO_CONTRACT; return bmtProp->fIsEnum; } 
-    BOOL ContainsStackPtr() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->ContainsStackPtr(); } 
     BOOL HasNonPublicFields() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->HasNonPublicFields(); }
     BOOL IsValueClass() { WRAPPER_NO_CONTRACT; return bmtProp->fIsValueClass; } 
     BOOL IsUnsafeValueClass() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->IsUnsafeValueClass(); }
@@ -2083,6 +2081,7 @@ private:
         DWORD NumGCPointerSeries;
         DWORD NumInstanceFieldBytes;
 
+        bool  fIsByRefLikeType;
         bool  fHasFixedAddressValueTypes;
         bool  fHasSelfReferencingStaticValueTypeField_WithRVA;
 
@@ -3017,8 +3016,6 @@ private:
         DWORD dwR8Fields,
         DWORD dwTotalFields);
 
-#endif // !BINDER
-
     MethodTable * AllocateNewMT(Module *pLoaderModule,
                                 DWORD dwVtableSlots, 
                                 DWORD dwVirtuals,
@@ -3027,14 +3024,8 @@ private:
                                 DWORD dwNumDicts, 
                                 DWORD dwNumTypeSlots, 
                                 MethodTable *pMTParent,
-#ifndef BINDER
                                 ClassLoader *pClassLoader,
                                 LoaderAllocator *pAllocator, 
-#else // BINDER
-                                MdilModule *declaringModule,
-                                MdilModule *containingModule,
-                                BOOL fHasDispatchMap,
-#endif // BINDER
                                 BOOL isIFace, 
                                 BOOL fDynamicStatics,
                                 BOOL fHasGenericsStaticsInfo,
@@ -3053,8 +3044,6 @@ private:
 
 };  // class MethodTableBuilder
 
-#ifndef BINDER
 #include "methodtablebuilder.inl"
-#endif // !BINDER
 
 #endif // !METHODTABLEBUILDER_H

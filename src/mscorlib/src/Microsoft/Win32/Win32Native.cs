@@ -90,7 +90,6 @@
 namespace Microsoft.Win32 {
     using System;
     using System.Security;
-    using System.Security.Principal;
     using System.Text;
     using System.Configuration.Assemblies;
     using System.Runtime.Remoting;
@@ -111,7 +110,6 @@ namespace Microsoft.Win32 {
     // Remove the default demands for all P/Invoke methods with this
     // global declaration on the class.
 
-    [System.Security.SecurityCritical]
     [SuppressUnmanagedCodeSecurityAttribute()]
     internal static class Win32Native {
 
@@ -325,7 +323,7 @@ namespace Microsoft.Win32 {
                 // } REG_TZI_FORMAT;
                 //
                 if (bytes == null || bytes.Length != 44) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_InvalidREG_TZI_FORMAT"), "bytes");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_InvalidREG_TZI_FORMAT"), nameof(bytes));
                 }
                 Bias = BitConverter.ToInt32(bytes, 0);
                 StandardBias = BitConverter.ToInt32(bytes, 4);
@@ -452,7 +450,6 @@ namespace Microsoft.Win32 {
             internal int fileSizeHigh;
             internal int fileSizeLow;
 
-            [System.Security.SecurityCritical]
             internal void PopulateFrom(WIN32_FIND_DATA findData) {
                 // Copy the information to data
                 fileAttributes = findData.dwFileAttributes; 
@@ -514,7 +511,6 @@ namespace Microsoft.Win32 {
             ///     strings created with this version of the constructor will be unsafe to use after the buffer
             ///     has been freed.
             /// </remarks>
-            [System.Security.SecurityCritical]  // auto-generated
             internal UNICODE_INTPTR_STRING (int stringBytes, SafeLocalAllocHandle buffer) {
                 BCLDebug.Assert(buffer == null || (stringBytes >= 0 && (ulong)stringBytes <= buffer.ByteLength),
                                 "buffer == null || (stringBytes >= 0 && stringBytes <= buffer.ByteLength)");
@@ -698,18 +694,19 @@ namespace Microsoft.Win32 {
         internal const String USER32   = "user32.dll";
         internal const String OLE32    = "ole32.dll";
         internal const String OLEAUT32 = "oleaut32.dll";
+        internal const String NTDLL    = "ntdll.dll";
 #else //FEATURE_PAL
         internal const String KERNEL32 = "libcoreclr";
         internal const String USER32   = "libcoreclr";
         internal const String OLE32    = "libcoreclr";
         internal const String OLEAUT32 = "libcoreclr";
+        internal const String NTDLL    = "libcoreclr";
 #endif //FEATURE_PAL         
         internal const String ADVAPI32 = "advapi32.dll";
         internal const String SHELL32  = "shell32.dll";
         internal const String SHIM     = "mscoree.dll";
         internal const String CRYPT32  = "crypt32.dll";
         internal const String SECUR32  = "secur32.dll";
-        internal const String NTDLL    = "ntdll.dll";
 #if FEATURE_MAIN_CLR_MODULE_USES_CORE_NAME
         internal const String MSCORWKS = "coreclr.dll";
 #else //FEATURE_MAIN_CLR_MODULE_USES_CORE_NAME
@@ -758,7 +755,7 @@ namespace Microsoft.Win32 {
         internal static extern IntPtr LocalFree(IntPtr handle);
 
         // MSDN says the length is a SIZE_T.
-        [DllImport(KERNEL32, EntryPoint = "RtlZeroMemory")]
+        [DllImport(NTDLL, EntryPoint = "RtlZeroMemory")]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal static extern void ZeroMemory(IntPtr address, UIntPtr length);
 
@@ -799,7 +796,6 @@ namespace Microsoft.Win32 {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         private static extern IntPtr GetModuleHandle(String moduleName);
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static bool DoesWin32MethodExist(String moduleName, String methodName)
         {
             // GetModuleHandle does not increment the module's ref count, so we don't need to call FreeLibrary.
@@ -852,9 +848,12 @@ namespace Microsoft.Win32 {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal static extern uint SysStringByteLen(IntPtr bstr);
 
+#if FEATURE_LEGACYSURFACE
         [DllImport(Win32Native.OLEAUT32)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal static extern uint SysStringLen(SafeBSTRHandle bstr);
+#endif
+
 #endif
 
         [DllImport(KERNEL32)]
@@ -892,58 +891,17 @@ namespace Microsoft.Win32 {
         [DllImport(KERNEL32, SetLastError = true, CharSet = CharSet.Auto, BestFitMapping = false)]
         internal unsafe static extern int GetLongPathName(char* path, char* longPathBuffer, int bufferLength);
 
+        [DllImport(KERNEL32, SetLastError = true, ExactSpelling = true)]
+        internal unsafe static extern uint GetFullPathNameW(char* path, uint numBufferChars, SafeHandle buffer, IntPtr mustBeZero);
+
         [DllImport(KERNEL32, SetLastError = true, CharSet = CharSet.Auto, BestFitMapping = false)]
         internal static extern int GetLongPathName(String path, [Out]StringBuilder longPathBuffer, int bufferLength);
 
-        // Disallow access to all non-file devices from methods that take
-        // a String.  This disallows DOS devices like "con:", "com1:", 
-        // "lpt1:", etc.  Use this to avoid security problems, like allowing
-        // a web client asking a server for "http://server/com1.aspx" and
-        // then causing a worker process to hang.
-        [System.Security.SecurityCritical]  // auto-generated
-        internal static SafeFileHandle SafeCreateFile(String lpFileName,
-                    int dwDesiredAccess, System.IO.FileShare dwShareMode,
-                    SECURITY_ATTRIBUTES securityAttrs, System.IO.FileMode dwCreationDisposition,
-                    int dwFlagsAndAttributes, IntPtr hTemplateFile)
-        {
-            SafeFileHandle handle = CreateFile( lpFileName, dwDesiredAccess, dwShareMode,
-                                securityAttrs, dwCreationDisposition,
-                                dwFlagsAndAttributes, hTemplateFile );
+        [DllImport(KERNEL32, SetLastError = true, ExactSpelling = true)]
+        internal static extern uint GetLongPathNameW(SafeHandle lpszShortPath, SafeHandle lpszLongPath, uint cchBuffer);
 
-            if (!handle.IsInvalid)
-            {
-                int fileType = Win32Native.GetFileType(handle);
-                if (fileType != Win32Native.FILE_TYPE_DISK) {
-                    handle.Dispose();
-                    throw new NotSupportedException(Environment.GetResourceString("NotSupported_FileStreamOnNonFiles"));
-                }
-            }
-
-            return handle;
-        }            
-
-        [System.Security.SecurityCritical]  // auto-generated
-        internal static SafeFileHandle UnsafeCreateFile(String lpFileName,
-                    int dwDesiredAccess, System.IO.FileShare dwShareMode,
-                    SECURITY_ATTRIBUTES securityAttrs, System.IO.FileMode dwCreationDisposition,
-                    int dwFlagsAndAttributes, IntPtr hTemplateFile)
-        {
-            SafeFileHandle handle = CreateFile( lpFileName, dwDesiredAccess, dwShareMode,
-                                securityAttrs, dwCreationDisposition,
-                                dwFlagsAndAttributes, hTemplateFile );
-
-            return handle;
-        }            
-    
-        // Do not use these directly, use the safe or unsafe versions above.
-        // The safe version does not support devices (aka if will only open
-        // files on disk), while the unsafe version give you the full semantic
-        // of the native version.
-        [DllImport(KERNEL32, SetLastError=true, CharSet=CharSet.Auto, BestFitMapping=false)]
-        private static extern SafeFileHandle CreateFile(String lpFileName,
-                    int dwDesiredAccess, System.IO.FileShare dwShareMode,
-                    SECURITY_ATTRIBUTES securityAttrs, System.IO.FileMode dwCreationDisposition,
-                    int dwFlagsAndAttributes, IntPtr hTemplateFile);
+        [DllImport(KERNEL32, SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        internal static extern uint GetLongPathNameW(string lpszShortPath, SafeHandle lpszLongPath, uint cchBuffer);
 
         [DllImport(KERNEL32, SetLastError=true, CharSet=CharSet.Auto, BestFitMapping=false)]
         internal static extern SafeFileMappingHandle CreateFileMapping(SafeFileHandle hFile, IntPtr lpAttributes, uint fProtect, uint dwMaximumSizeHigh, uint dwMaximumSizeLow, String lpName);
@@ -973,7 +931,6 @@ namespace Microsoft.Win32 {
         [DllImport(KERNEL32, SetLastError=true, EntryPoint="SetFilePointer")]
         private unsafe static extern int SetFilePointerWin32(SafeFileHandle handle, int lo, int * hi, int origin);
         
-        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe static long SetFilePointer(SafeFileHandle handle, long offset, System.IO.SeekOrigin origin, out int hr) {
             hr = 0;
             int lo = (int) offset;
@@ -1055,7 +1012,6 @@ namespace Microsoft.Win32 {
         internal const int FIND_FROMSTART   = 0x00400000; // look for value in source, starting at the beginning
         internal const int FIND_FROMEND     = 0x00800000; // look for value in source, starting at the end
 
-#if !FEATURE_CORECLR
         [StructLayout(LayoutKind.Sequential)]
         internal struct NlsVersionInfoEx 
         {
@@ -1065,7 +1021,6 @@ namespace Microsoft.Win32 {
             internal int dwEffectiveId;
             internal Guid guidCustomVersion;
         }
-#endif
 
         [DllImport(KERNEL32, CharSet=CharSet.Auto, SetLastError=true, BestFitMapping=false)]
         internal static extern int GetWindowsDirectory([Out]StringBuilder sb, int length);
@@ -1286,6 +1241,9 @@ namespace Microsoft.Win32 {
         internal static extern int GetCurrentDirectory(
                   int nBufferLength,
                   [Out]StringBuilder lpBuffer);
+
+        [DllImport(KERNEL32, SetLastError = true, ExactSpelling = true)]
+        internal static extern uint GetCurrentDirectoryW(uint nBufferLength, SafeHandle lpBuffer);
 
         [DllImport(KERNEL32, SetLastError=true, CharSet=CharSet.Auto, BestFitMapping=false)]
         internal static extern bool GetFileAttributesEx(String name, int fileInfoLevel, ref WIN32_FILE_ATTRIBUTE_DATA lpFileInformation);
@@ -1755,7 +1713,7 @@ namespace Microsoft.Win32 {
         // DPAPI
         //
 
-#if FEATURE_COMINTEROP
+#if FEATURE_LEGACYSURFACE
         //
         // RtlEncryptMemory and RtlDecryptMemory are declared in the internal header file crypt.h. 
         // They were also recently declared in the public header file ntsecapi.h (in the Platform SDK as well as the current build of Server 2003). 
@@ -1777,20 +1735,13 @@ namespace Microsoft.Win32 {
             [In,Out] SafeBSTRHandle     pDataIn,
             [In]     uint       cbDataIn,   // multiple of RTL_ENCRYPT_MEMORY_SIZE
             [In]     uint       dwFlags);
-#endif // FEATURE_COMINTEROP
+#endif // FEATURE_LEGACYSURFACE
 
-#if FEATURE_CORECLR 
         [DllImport(NTDLL, CharSet=CharSet.Unicode, SetLastError=true)]
         internal static extern
         int RtlNtStatusToDosError (
             [In]    int         status);
-#else
-        // identical to RtlNtStatusToDosError, but we are in ask mode for desktop CLR
-        [DllImport(ADVAPI32, CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern
-        int LsaNtStatusToWinError (
-            [In]    int         status);
-#endif
+
         // Get the current FIPS policy setting on Vista and above
         [DllImport("bcrypt.dll")]
         internal static extern uint BCryptGetFipsAlgorithmMode(
@@ -1912,28 +1863,6 @@ namespace Microsoft.Win32 {
             [In]     bool                       bInheritHandle,
             [In]     uint                       dwOptions);
 
-#if FEATURE_IMPERSONATION
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
-        [DllImport(ADVAPI32, CharSet=CharSet.Auto, SetLastError=true)]
-        internal static extern 
-        bool DuplicateTokenEx (
-            [In]     SafeAccessTokenHandle       ExistingTokenHandle,
-            [In]     TokenAccessLevels           DesiredAccess,
-            [In]     IntPtr                      TokenAttributes,
-            [In]     SECURITY_IMPERSONATION_LEVEL ImpersonationLevel,
-            [In]     System.Security.Principal.TokenType TokenType,
-            [In,Out] ref SafeAccessTokenHandle   DuplicateTokenHandle );
-
-        [DllImport(ADVAPI32, CharSet=CharSet.Auto, SetLastError=true)]
-        internal static extern 
-        bool DuplicateTokenEx (
-            [In]     SafeAccessTokenHandle      hExistingToken,
-            [In]     uint                       dwDesiredAccess,
-            [In]     IntPtr                     lpTokenAttributes,   // LPSECURITY_ATTRIBUTES
-            [In]     uint                       ImpersonationLevel,
-            [In]     uint                       TokenType,
-            [In,Out] ref SafeAccessTokenHandle  phNewToken);
-#endif
         [DllImport(
              ADVAPI32,
              EntryPoint="EqualDomainSid",
@@ -2327,26 +2256,6 @@ namespace Microsoft.Win32 {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal static extern int LsaFreeReturnBuffer(IntPtr handle);
 
-#if FEATURE_IMPERSONATION || FEATURE_CORECLR
-        [DllImport (ADVAPI32, CharSet=CharSet.Unicode, SetLastError=true)]
-        internal static extern 
-        bool OpenProcessToken (
-            [In]     IntPtr                     ProcessToken,
-            [In]     TokenAccessLevels          DesiredAccess,
-            [Out]    out SafeAccessTokenHandle  TokenHandle);
-#endif
-
-#if FEATURE_CORECLR
-        [DllImport (ADVAPI32, CharSet=CharSet.Unicode, SetLastError=true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern 
-        bool OpenThreadToken (
-            [In]     IntPtr                     ThreadHandle,
-            [In]     TokenAccessLevels          DesiredAccess,
-            [In, MarshalAs(UnmanagedType.Bool)]     bool OpenAsSelf,
-            [Out]    out SafeAccessTokenHandle  TokenHandle);
-#endif
-
         [DllImport(
              ADVAPI32,
              EntryPoint="SetNamedSecurityInfoW",
@@ -2379,16 +2288,6 @@ namespace Microsoft.Win32 {
             byte[] dacl,
             byte[] sacl );
 
-        // Fusion APIs
-#if FEATURE_FUSION
-        [DllImport(MSCORWKS, CharSet=CharSet.Unicode)]
-        internal static extern int CreateAssemblyNameObject(out IAssemblyName ppEnum, String szAssemblyName, uint dwFlags, IntPtr pvReserved);
-    
-        [DllImport(MSCORWKS, CharSet=CharSet.Auto)]
-        internal static extern int CreateAssemblyEnum(out IAssemblyEnum ppEnum, IApplicationContext pAppCtx, IAssemblyName pName, uint dwFlags, IntPtr pvReserved);
-#endif // FEATURE_FUSION
-
-#if FEATURE_CORECLR
         [DllImport(KERNEL32, CharSet=CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurityAttribute()]
         internal  unsafe static extern int WideCharToMultiByte(
@@ -2410,7 +2309,6 @@ namespace Microsoft.Win32 {
             int      cchMultiByte,
             char*  lpWideCharStr,
             int      cchWideChar);
-#endif  // FEATURE_CORECLR
 
         [DllImport(KERNEL32, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -2418,9 +2316,29 @@ namespace Microsoft.Win32 {
 
 #if FEATURE_PAL
         [DllImport(KERNEL32, EntryPoint = "PAL_Random")]
-        [ResourceExposure(ResourceScope.None)]
         internal extern static bool Random(bool bStrong,
                            [Out, MarshalAs(UnmanagedType.LPArray)] byte[] buffer, int length);
+#else
+        private const int BCRYPT_USE_SYSTEM_PREFERRED_RNG = 0x00000002;
+
+        [DllImport("BCrypt.dll", CharSet = CharSet.Unicode)]
+        private static extern uint BCryptGenRandom(IntPtr hAlgorithm, [In, Out] byte[] pbBuffer, int cbBuffer, int dwFlags);
+
+        internal static void Random(bool bStrong, byte[] buffer, int length)
+        {
+            uint status = BCryptGenRandom(IntPtr.Zero, buffer, length, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+            if (status != STATUS_SUCCESS)
+            {
+                if (status == STATUS_NO_MEMORY)
+                {
+                    throw new OutOfMemoryException();
+                }
+                else
+                {
+                    throw new InvalidOperationException();
+                }
+            }
+        }
 #endif
     }
 }

@@ -21,16 +21,20 @@
     <BuildToolsTargets45>true</BuildToolsTargets45>   
   </PropertyGroup>  
 
-
   <!-- Common repo directories -->
   <PropertyGroup>
+    <CopyNuGetImplementations Condition="'$(CopyNuGetImplementations)'==''">false</CopyNuGetImplementations>
     <ProjectDir>$(MSBuildThisFileDirectory)</ProjectDir>
     <SourceDir>$(ProjectDir)src\</SourceDir>
     <PackagesDir>$(ProjectDir)..\packages\</PackagesDir>
-    <ToolsDir Condition="'$(ToolsDir)'==''">$(ProjectDir)..\Tools\</ToolsDir>  
-    <DotnetCliPath Condition="'$(DotnetCliPath)'==''">$(ToolsDir)dotnetcli/bin/</DotnetCliPath> 
-    <BuildToolsTaskDir Condition="'$(BuildToolsTargets45)' == 'true'">$(ToolsDir)net45/</BuildToolsTaskDir> 
+    <ToolsDir Condition="'$(ToolsDir)'==''">$(ProjectDir)..\Tools\</ToolsDir>
+    <DotnetCliPath Condition="'$(DotnetCliPath)'==''">$(ToolsDir)dotnetcli/</DotnetCliPath>
+    <BuildToolsTaskDir Condition="'$(BuildToolsTargets45)' == 'true'">$(ToolsDir)net45/</BuildToolsTaskDir>
+    <SkipImportILTargets>true</SkipImportILTargets>
   </PropertyGroup>
+
+  <!-- Provides properties for dependency versions and configures dependency verification/auto-upgrade. -->
+  <Import Project="$(ProjectDir)..\dependencies.props" />
 
   <!-- Common nuget properties -->
   <PropertyGroup>
@@ -50,9 +54,9 @@
 
    <!-- list of nuget package sources passed to dnu --> 
    <ItemGroup> 
-     <!-- Need to escape double forward slash (%2F) or MSBuild will normalize to one slash on Unix. --> 
+     <!-- Need to escape double forward slash (%2F) or MSBuild will normalize to one slash on Unix. -->
+     <DnuSourceList Include="https:%2F%2Fdotnet.myget.org/F/dotnet-corefxlab/api/v3/index.json" />
      <DnuSourceList Include="https:%2F%2Fdotnet.myget.org/F/dotnet-core/api/v3/index.json" /> 
-     <DnuSourceList Include="https:%2F%2Fwww.myget.org/F/nugetbuild/api/v3/index.json" /> 
      <DnuSourceList Include="https:%2F%2Fapi.nuget.org/v3/index.json" /> 
    </ItemGroup> 
 
@@ -73,15 +77,12 @@
 
     <DnuRestoreSource>@(DnuSourceList -> '--source %(Identity)', ' ')</DnuRestoreSource>
     <DnuRestoreDirs>@(DnuRestoreDir -> '%(Identity)', ' ')</DnuRestoreDirs>
-    
-    <!-- If CORE_ROOT is set on Windows, the dotnet CLI tool tries to use it. This results in DLL resolution errors. Unset CORE_ROOT during restore. -->
-    <DnuRestoreCommand Condition="'$(OsEnvironment)'!='Unix'">(set CORE_ROOT=) &amp;</DnuRestoreCommand>
-    
+
     <DnuRestoreCommand>$(DnuRestoreCommand) "$(DotnetToolCommand)"</DnuRestoreCommand>
     <DnuRestoreCommand>$(DnuRestoreCommand) restore</DnuRestoreCommand>
     <DnuRestoreCommand>$(DnuRestoreCommand) --packages "$(PackagesDir.TrimEnd('/\'.ToCharArray()))" $(DnuRestoreSource)</DnuRestoreCommand>
   </PropertyGroup>
-  
+
   <!-- Which tests shall we build? Default: Priority 0 tests.
     At the command-line, the user can specify /p:CLRTestPriorityToBuild=666 (for example), and
     all tests with CLRTestPriority 666,..., 1 AND 0 will build. 

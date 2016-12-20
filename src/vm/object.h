@@ -318,7 +318,6 @@ class Object
         return GetHeader()->GetSyncBlockIndex();
     }
 
-#ifndef BINDER
     ADIndex GetAppDomainIndex();
 
     // Get app domain of object, or NULL if it is agile
@@ -327,11 +326,12 @@ class Object
 #ifndef DACCESS_COMPILE
     // Set app domain of object to current domain.
     void SetAppDomain() { WRAPPER_NO_CONTRACT; SetAppDomain(::GetAppDomain()); }
+    BOOL SetAppDomainNoThrow();
+    
 #endif
 
     // Set app domain of object to given domain - it can only be set once
     void SetAppDomain(AppDomain *pDomain);
-#endif // BINDER
 
 #ifdef _DEBUG
 #ifndef DACCESS_COMPILE
@@ -341,9 +341,7 @@ class Object
     {
         WRAPPER_NO_CONTRACT;
 
-#ifndef BINDER
         DEBUG_SetAppDomain(::GetAppDomain());
-#endif
     }
 #endif //!DACCESS_COMPILE
 
@@ -1064,11 +1062,7 @@ typedef PTR_StringObject STRINGREF;
  *
  * Special String implementation for performance.   
  *
- *   m_ArrayLength  - Length of buffer (m_Characters) in number of WCHARs
- *   m_StringLength - Length of string in number of WCHARs, may be smaller
- *                    than the m_ArrayLength implying that there is extra
- *                    space at the end. The high two bits of this field are used
- *                    to indicate if the String has characters higher than 0x7F
+ *   m_StringLength - Length of string in number of WCHARs
  *   m_Characters   - The string buffer
  *
  */
@@ -1285,7 +1279,6 @@ class BaseObjectWithCachedData : public Object
 #endif //FEATURE_REMOTING
 };
 
-#ifndef BINDER
 // This is the Class version of the Reflection object.
 //  A Class has adddition information.
 //  For a ReflectClassBaseObject the m_pData is a pointer to a FieldDesc array that
@@ -1370,7 +1363,6 @@ public:
     }
 
 };
-#endif // BINDER
 
 // This is the Method version of the Reflection object.
 //  A Method has adddition information.
@@ -1864,17 +1856,15 @@ private:
     OBJECTREF dateTimeInfo;
     OBJECTREF calendar;
     OBJECTREF m_cultureData;
-#ifndef FEATURE_CORECLR
     OBJECTREF m_consoleFallbackCulture;
-#endif // !FEATURE_CORECLR
     STRINGREF m_name;                       // "real" name - en-US, de-DE_phoneb or fj-FJ
     STRINGREF m_nonSortName;                // name w/o sort info (de-DE for de-DE_phoneb)
     STRINGREF m_sortName;                   // Sort only name (de-DE_phoneb, en-us for fj-fj (w/us sort)
     CULTUREINFOBASEREF m_parent;
-#if !FEATURE_CORECLR
+#ifndef FEATURE_COREFX_GLOBALIZATION
     INT32    iDataItem;                     // NEVER USED, DO NOT USE THIS! (Serialized in Whidbey/Everett)
     INT32    iCultureID;                    // NEVER USED, DO NOT USE THIS! (Serialized in Whidbey/Everett)
-#endif // !FEATURE_CORECLR
+#endif // !FEATURE_COREFX_GLOBALIZATION
 #ifdef FEATURE_LEAK_CULTURE_INFO
     INT32 m_createdDomainID;
 #endif // FEATURE_LEAK_CULTURE_INFO
@@ -1883,9 +1873,7 @@ private:
 #ifdef FEATURE_LEAK_CULTURE_INFO
     CLR_BOOL m_isSafeCrossDomain;
 #endif // FEATURE_LEAK_CULTURE_INFO
-#ifndef FEATURE_COREFX_GLOBALIZATION
     CLR_BOOL m_useUserOverride;
-#endif
 
 public:
     CULTUREINFOBASEREF GetParent()
@@ -1978,8 +1966,7 @@ public:
         /* 0x160 */ STRINGREF sCompareInfo             ; // Compare info name (including sorting key) to use if custom
         /* 0x168 */ STRINGREF sScripts                 ; // Typical Scripts for this locale (latn;cyrl; etc)
 
-#if !defined(FEATURE_CORECLR)
-        // desktop only fields - these are ordered correctly
+        // these are ordered correctly
         /* ????? */ STRINGREF sAbbrevLang              ; // abbreviated language name (Windows Language Name) ex: ENU
         /* ????? */ STRINGREF sAbbrevCountry           ; // abbreviated country name (RegionInfo) (Windows Region Name) ex: USA
         /* ????? */ STRINGREF sISO639Language2         ; // 3 char ISO 639 lang name 2 ex: eng
@@ -1987,7 +1974,6 @@ public:
         /* ????? */ STRINGREF sConsoleFallbackName     ; // The culture name for the console fallback UI culture
         /* ????? */ STRINGREF sKeyboardsToInstall      ; // Keyboard installation string.
         /* ????? */ STRINGREF fontSignature            ; // Font signature (16 WORDS)
-#endif
 
 // Unused for now:        /* ????? */ INT32    iCountry                  ; // (user can override) country code (RegionInfo)
         /* 0x170 */ INT32    iGeoId                    ; // GeoId
@@ -2006,21 +1992,18 @@ public:
         /* 0x1a0 */ INT32    iFirstWeekOfYear          ; // (user can override) first week of year (gregorian really)
 
         /* ????? */ INT32    iReadingLayout; // Reading Layout Data (0-3)
-#if !defined(FEATURE_CORECLR)
-        // desktop only fields - these are ordered correctly
+
+        // these are ordered correctly
         /* ????? */ INT32    iDefaultAnsiCodePage      ; // default ansi code page ID (ACP)
         /* ????? */ INT32    iDefaultOemCodePage       ; // default oem code page ID (OCP or OEM)
         /* ????? */ INT32    iDefaultMacCodePage       ; // default macintosh code page
         /* ????? */ INT32    iDefaultEbcdicCodePage    ; // default EBCDIC code page
         /* ????? */ INT32    iLanguage                 ; // locale ID (0409) - NO sort information
         /* ????? */ INT32    iInputLanguageHandle      ; // input language handle
-#endif
         /* 0x1a4 */ CLR_BOOL bUseOverrides             ; // use user overrides?
         /* 0x1a5 */ CLR_BOOL bNeutral                  ; // Flags for the culture (ie: neutral or not right now)        
-#if !defined(FEATURE_CORECLR)
         /* ????? */ CLR_BOOL bWin32Installed           ; // Flags indicate if the culture is Win32 installed       
         /* ????? */ CLR_BOOL bFramework                ; // Flags for indicate if the culture is one of Whidbey cultures 
-#endif
 
 }; // class CultureDataBaseObject
 
@@ -2081,7 +2064,10 @@ private:
 #ifdef FEATURE_REMOTING    
     OBJECTREF     m_ExposedContext;
 #endif    
-#ifndef FEATURE_CORECLR
+#ifdef FEATURE_CORECLR
+    OBJECTREF     m_ExecutionContext;
+    OBJECTREF     m_SynchronizationContext;
+#else
     EXECUTIONCONTEXTREF     m_ExecutionContext;
 #endif
     OBJECTREF     m_Name;
@@ -2206,15 +2192,28 @@ public:
     }
 #endif // FEATURE_LEAK_CULTURE_INFO
 
-#ifndef FEATURE_CORECLR
+#ifdef FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
+#ifdef FEATURE_CORECLR
     OBJECTREF GetSynchronizationContext()
     {
-        LIMITED_METHOD_CONTRACT; 
+        LIMITED_METHOD_CONTRACT;
+        return m_SynchronizationContext;
+    }
+#else // !FEATURE_CORECLR
+    OBJECTREF GetSynchronizationContext()
+    {
+        LIMITED_METHOD_CONTRACT;
         if (m_ExecutionContext != NULL)
+        {
             return m_ExecutionContext->GetSynchronizationContext();
+        }
         return NULL;
     }
-    OBJECTREF GetExecutionContext() 
+#endif // FEATURE_CORECLR
+#endif // FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
+
+#ifndef FEATURE_CORECLR
+    OBJECTREF GetExecutionContext()
     { 
         LIMITED_METHOD_CONTRACT; 
         return (OBJECTREF)m_ExecutionContext;
@@ -2673,9 +2672,7 @@ class AssemblyNameBaseObject : public Object
     OBJECTREF     m_pCodeBase;
     OBJECTREF     m_pVersion;
     OBJECTREF     m_StrongNameKeyPair;
-#ifdef FEATURE_SERIALIZATION
     OBJECTREF     m_siInfo;
-#endif
     U1ARRAYREF    m_HashForControl;
     DWORD         m_HashAlgorithm;
     DWORD         m_HashAlgorithmForControl;
@@ -2883,8 +2880,10 @@ class FrameSecurityDescriptorBaseObject : public Object
         LIMITED_METHOD_CONTRACT;
         m_declSecComputed = !!declSec;
     }
+#ifndef FEATURE_PAL
     LPVOID GetCallerToken();
     LPVOID GetImpersonationToken();
+#endif  // FEATURE_PAL
 };
 
 #ifdef FEATURE_COMPRESSEDSTACK
@@ -3158,7 +3157,6 @@ typedef RealProxyObject*     REALPROXYREF;
 #endif
 
 
-#ifndef CLR_STANDALONE_BINDER
 #ifdef FEATURE_COMINTEROP
 
 //-------------------------------------------------------------
@@ -3452,7 +3450,6 @@ typedef BStrWrapper*     BSTRWRAPPEROBJECTREF;
 #endif
 
 #endif // FEATURE_COMINTEROP
-#endif // CLR_STANDALONE_BINDER
 
 class StringBufferObject;
 #ifdef USE_CHECKED_OBJECTREFS
@@ -4136,13 +4133,11 @@ private:
         return GetHeader()->m_thread;
     }
 
-#ifndef BINDER
     void SetObjectThread()
     {
         WRAPPER_NO_CONTRACT;
         GetHeader()->m_thread = GetThread();
     }
-#endif //!BINDER
 
     StackTraceElement const * GetData() const
     {
@@ -4271,10 +4266,10 @@ typedef PTR_LoaderAllocatorObject LOADERALLOCATORREF;
 
 #endif // FEATURE_COLLECTIBLE_TYPES
 
-#if !defined(DACCESS_COMPILE) && !defined(CLR_STANDALONE_BINDER)
+#if !defined(DACCESS_COMPILE)
 // Define the lock used to access stacktrace from an exception object
 EXTERN_C SpinLock g_StackTraceArrayLock;
-#endif // !defined(DACCESS_COMPILE) && !defined(CLR_STANDALONE_BINDER)
+#endif // !defined(DACCESS_COMPILE)
 
 // This class corresponds to Exception on the managed side.
 typedef DPTR(class ExceptionObject) PTR_ExceptionObject;
@@ -4581,19 +4576,17 @@ public:
     INT32 cPositivePercentFormat;   // positivePercentFormat
     INT32 cNegativePercentFormat;   // negativePercentFormat
     INT32 cPercentDecimals;         // percentDecimalDigits
-#ifndef FEATURE_CORECLR    
     INT32 iDigitSubstitution;       // digitSubstitution
-#endif    
 
     CLR_BOOL bIsReadOnly;              // Is this NumberFormatInfo ReadOnly?
 #ifndef FEATURE_COREFX_GLOBALIZATION
     CLR_BOOL bUseUserOverride;         // Flag to use user override. Only used from managed code.
 #endif
     CLR_BOOL bIsInvariant;             // Is this the NumberFormatInfo for the Invariant Culture?
-#ifndef FEATURE_CORECLR    
+#ifndef FEATURE_COREFX_GLOBALIZATION
     CLR_BOOL bvalidForParseAsNumber;   // NEVER USED, DO NOT USE THIS! (Serialized in Whidbey/Everett)
     CLR_BOOL bvalidForParseAsCurrency; // NEVER USED, DO NOT USE THIS! (Serialized in Whidbey/Everett)
-#endif // !FEATURE_CORECLR
+#endif
 };
 
 typedef NumberFormatInfo * NUMFMTREF;

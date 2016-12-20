@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 using Contract = System.Diagnostics.Contracts.Contract;
 
@@ -15,6 +16,9 @@ namespace System.Diagnostics.Tracing
 
     internal  class XplatEventLogger : EventListener
     {
+        private static Lazy<string> eventSourceNameFilter = new Lazy<string>(() => CompatibilitySwitch.GetValueInternal("EventSourceFilter"));
+        private static Lazy<string> eventSourceEventFilter = new Lazy<string>(() => CompatibilitySwitch.GetValueInternal("EventNameFilter"));
+        
         public XplatEventLogger() {}
 
         private static bool initializedPersistentListener = false;
@@ -69,9 +73,8 @@ namespace System.Diagnostics.Tracing
             }
         }
 
-        private static string Serialize(ReadOnlyCollection<string> payloadName, ReadOnlyCollection<object> payload, string sep = ", ")
+        private static string Serialize(ReadOnlyCollection<string> payloadName, ReadOnlyCollection<object> payload, string eventMessage)
         {
-
             if (payloadName == null || payload == null )
                 return String.Empty;
 
@@ -88,8 +91,22 @@ namespace System.Diagnostics.Tracing
             var sb = StringBuilderCache.Acquire();
 
             sb.Append('{');
+
+            // If the event has a message, send that as well as a pseudo-field
+            if (!string.IsNullOrEmpty(eventMessage)) 
+            {
+                sb.Append("\\\"EventSource_Message\\\":\\\"");
+                minimalJsonserializer(eventMessage,sb);
+                sb.Append("\\\"");
+                if (eventDataCount != 0)
+                    sb.Append(", ");
+            }
+
             for (int i = 0; i < eventDataCount; i++)
             {
+                if (i != 0)
+                    sb.Append(", ");
+
                 var fieldstr = payloadName[i].ToString();
 
                 sb.Append("\\\"");
@@ -110,24 +127,27 @@ namespace System.Diagnostics.Tracing
                     sb.Append(payload[i].ToString());
                 }
 
-                sb.Append(sep);
-
             }
-
-             sb.Length -= sep.Length;
-             sb.Append('}');
-
-             return StringBuilderCache.GetStringAndRelease(sb);
+            sb.Append('}');
+            return StringBuilderCache.GetStringAndRelease(sb);
         }
 
         internal protected  override void OnEventSourceCreated(EventSource eventSource)
         {
-            EnableEvents(eventSource, EventLevel.LogAlways, EventKeywords.All, null);
+            string eventSourceFilter = eventSourceNameFilter.Value;
+            if (String.IsNullOrEmpty(eventSourceFilter) || (eventSource.Name.IndexOf(eventSourceFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+            {   
+                EnableEvents(eventSource, EventLevel.LogAlways, EventKeywords.All, null);
+            }
         }
 
         internal protected  override void OnEventWritten(EventWrittenEventArgs eventData)
         {
-            LogOnEventWritten(eventData);
+            string eventFilter = eventSourceEventFilter.Value;
+            if (String.IsNullOrEmpty(eventFilter) || (eventData.EventName.IndexOf(eventFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                LogOnEventWritten(eventData);
+            }
         }
 
         [System.Security.SecuritySafeCritical]
@@ -137,7 +157,7 @@ namespace System.Diagnostics.Tracing
             if (eventData.Payload != null)
             {
                 try{
-                    payload = Serialize(eventData.PayloadNames, eventData.Payload);
+                    payload = Serialize(eventData.PayloadNames, eventData.Payload, eventData.Message);
                 }
                 catch (Exception ex)
                 {

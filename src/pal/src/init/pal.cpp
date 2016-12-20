@@ -28,6 +28,7 @@ Abstract:
 #include "pal/seh.hpp"
 #include "pal/palinternal.h"
 #include "pal/dbgmsg.h"
+#include "pal/sharedmemory.h"
 #include "pal/shmemory.h"
 #include "pal/process.h"
 #include "../thread/procprivate.hpp"
@@ -71,6 +72,13 @@ int CacheLineSize;
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif // __APPLE__
+
+#ifdef __NetBSD__
+#include <sys/cdefs.h>
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <kvm.h>
+#endif
 
 using namespace CorUnix;
 
@@ -230,8 +238,9 @@ Initialize(
 
     if (init_count == 0)
     {
-        // Set our pid.
+        // Set our pid and sid.
         gPID = getpid();
+        gSID = getsid(gPID);
 
         fFirstTimeInit = true;
 
@@ -273,6 +282,7 @@ Initialize(
             // we use large numbers of threads or have many open files.
         }
 
+        SharedMemoryManager::StaticInitialize();
 
         /* initialize the shared memory infrastructure */
         if (!SHMInitialize())
@@ -295,7 +305,7 @@ Initialize(
 #if HAVE_MACH_EXCEPTIONS
         // Mach exception port needs to be set up before the thread
         // data or threads are set up.
-        if (!SEHInitializeMachExceptions())
+        if (!SEHInitializeMachExceptions(flags))
         {
             ERROR("SEHInitializeMachExceptions failed!\n");
             palError = ERROR_GEN_FAILURE;
@@ -561,9 +571,9 @@ CLEANUP6:
 CLEANUP5:
     PROCCleanupInitialProcess();
 CLEANUP2:
-    InternalFree(exe_path);
+    free(exe_path);
 CLEANUP1e:
-    InternalFree(command_line);
+    free(command_line);
 CLEANUP1d:
     // Cleanup synchronization manager
 CLEANUP1c:
@@ -695,6 +705,8 @@ PAL_IsDebuggerPresent()
         }
     }
 
+    close(status_fd);
+
     return debugger_present;
 #elif defined(__APPLE__)
     struct kinfo_proc info = {};
@@ -706,6 +718,31 @@ PAL_IsDebuggerPresent()
         return ((info.kp_proc.p_flag & P_TRACED) != 0);
 
     return FALSE;
+#elif defined(__NetBSD__)
+    int traced;
+    kvm_t *kd;
+    int cnt;
+
+    struct kinfo_proc *info;
+
+    kd = kvm_open(NULL, NULL, NULL, KVM_NO_FILES, "kvm_open");
+    if (kd == NULL)
+        return FALSE;
+
+    info = kvm_getprocs(kd, KERN_PROC_PID, getpid(), &cnt);
+    if (info == NULL || cnt < 1)
+    {
+        kvm_close(kd);
+        return FALSE;
+    }
+
+    traced = info->kp_proc.p_slflag & PSL_TRACED;
+    kvm_close(kd);
+
+    if (traced != 0)
+        return TRUE;
+    else
+        return FALSE;
 #else
     return FALSE;
 #endif
@@ -863,6 +900,8 @@ PALCommonCleanup()
         //
         CPalSynchMgrController::PrepareForShutdown();
 
+        SharedMemoryManager::StaticClose();
+
 #ifdef _DEBUG
         PROCDumpThreadList();
 #endif
@@ -953,6 +992,7 @@ Return value:
 --*/
 static BOOL INIT_IncreaseDescriptorLimit(void)
 {
+#ifndef DONT_SET_RLIMIT_NOFILE
     struct rlimit rlp;
     int result;
     
@@ -969,7 +1009,7 @@ static BOOL INIT_IncreaseDescriptorLimit(void)
     {
         return FALSE;
     }
-
+#endif // !DONT_SET_RLIMIT_NOFILE
     return TRUE;
 }
 
@@ -1074,7 +1114,7 @@ static LPWSTR INIT_FormatCommandLine (int argc, const char * const *argv)
     if (i == 0)
     {
         ASSERT("MultiByteToWideChar failure\n");
-        InternalFree(command_line);
+        free(command_line);
         return NULL;
     }
 
@@ -1082,20 +1122,20 @@ static LPWSTR INIT_FormatCommandLine (int argc, const char * const *argv)
     if(retval == NULL)
     {
         ERROR("can't allocate memory for Unicode command line!\n");
-        InternalFree(command_line);
+        free(command_line);
         return NULL;
     }
 
     if(!MultiByteToWideChar(CP_ACP, 0,command_line, i, retval, i))
     {
         ASSERT("MultiByteToWideChar failure\n");
-        InternalFree(retval);
+        free(retval);
         retval = NULL;
     }
     else
         TRACE("Command line is %s\n", command_line);
 
-    InternalFree(command_line);
+    free(command_line);
     return retval;
 }
 
@@ -1169,7 +1209,7 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
                                         return_value, return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(return_value);
+                    free(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1189,7 +1229,7 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
         WARN("$PATH isn't set.\n");
         if (env_path != NULL)
         {
-            InternalFree(env_path);
+            free(env_path);
         }
 
         goto last_resort;
@@ -1244,8 +1284,8 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
         if (strcpy_s(full_path, iLength, cur_dir) != SAFECRT_SUCCESS)
         {
             ERROR("strcpy_s failed!\n");
-            InternalFree(full_path);
-            InternalFree(env_path);
+            free(full_path);
+            free(env_path);
             return NULL;
         }
 
@@ -1254,8 +1294,8 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
             if (strcat_s(full_path, iLength, "/") != SAFECRT_SUCCESS)
             {
                 ERROR("strcat_s failed!\n");
-                InternalFree(full_path);
-                InternalFree(env_path);
+                free(full_path);
+                free(env_path);
                 return NULL;
             }
         }
@@ -1263,8 +1303,8 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
         if (strcat_s(full_path, iLength, exe_name) != SAFECRT_SUCCESS)
         {
             ERROR("strcat_s failed!\n");
-            InternalFree(full_path);
-            InternalFree(env_path);
+            free(full_path);
+            free(env_path);
             return NULL;
         }
 
@@ -1277,17 +1317,17 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
                 if (!CorUnix::RealPathHelper(full_path, real_path))
                 {
                     ERROR("realpath() failed!\n");
-                    InternalFree(full_path);
-                    InternalFree(env_path);
+                    free(full_path);
+                    free(env_path);
                     return NULL;
                 }
-                InternalFree(full_path);
+                free(full_path);
 
                 return_size = MultiByteToWideChar(CP_ACP,0,real_path,-1,NULL,0);
                 if ( 0 == return_size )
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(env_path);
+                    free(env_path);
                     return NULL;
                 }
 
@@ -1295,7 +1335,7 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
                 if ( NULL == return_value )
                 {
                     ERROR("Not enough memory to create full path\n");
-                    InternalFree(env_path);
+                    free(env_path);
                     return NULL;
                 }
 
@@ -1303,7 +1343,7 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
                                     return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(return_value);
+                    free(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1312,19 +1352,19 @@ static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
                           cur_dir,real_path.GetString());
                 }
 
-                InternalFree(env_path);
+                free(env_path);
                 return return_value;
             }
         }
 
         /* file doesn't exist : keep searching */
-        InternalFree(full_path);
+        free(full_path);
 
         /* path_ptr is NULL if there's no ':' after this directory */
         cur_dir=path_ptr;
     }
 
-    InternalFree(env_path);
+    free(env_path);
     TRACE("No %s found in $PATH (%s)\n", exe_name, EnvironGetenv("PATH", FALSE));
 
 last_resort:
@@ -1359,7 +1399,7 @@ last_resort:
                                         return_value, return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(return_value);
+                    free(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1427,7 +1467,7 @@ last_resort:
                                 return_value, return_size))
         {
             ASSERT("MultiByteToWideChar failure\n");
-            InternalFree(return_value);
+            free(return_value);
             return_value = NULL;
         }
         else

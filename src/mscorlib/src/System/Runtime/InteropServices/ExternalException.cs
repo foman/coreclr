@@ -20,7 +20,7 @@ namespace System.Runtime.InteropServices {
     // Base exception for COM Interop errors &; Structured Exception Handler
     // exceptions.
     // 
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public class ExternalException : SystemException {
         public ExternalException() 
@@ -52,7 +52,6 @@ namespace System.Runtime.InteropServices {
             }
         }
 
-#if !FEATURE_CORECLR // Breaks the subset-of-Orcas property
         public override String ToString() {
             String message = Message;
             String s;
@@ -75,6 +74,5 @@ namespace System.Runtime.InteropServices {
 
             return s;
         }
-#endif // !FEATURE_CORECLR
     }
 }

@@ -7,7 +7,6 @@ namespace System {
    using  System.Runtime.CompilerServices;
 
    [Serializable]
-   [TypeForwardedFrom("System.Core, Version=3.5.0.0, Culture=Neutral, PublicKeyToken=b77a5c561934e089")]
    [System.Security.Permissions.HostProtection(MayLeakOnAbort = true)]
    public class TimeZoneNotFoundException : Exception {
        public TimeZoneNotFoundException(String message)

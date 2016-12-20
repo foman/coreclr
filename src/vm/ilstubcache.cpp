@@ -81,7 +81,6 @@ void CreateModuleIndependentSignature(LoaderHeap* pCreationHeap,
     *pcbNewSig = cbNewSig;
 }
 
-#ifndef CLR_STANDALONE_BINDER
 // static
 MethodDesc* ILStubCache::CreateAndLinkNewILStubMethodDesc(LoaderAllocator* pAllocator, MethodTable* pMT, DWORD dwStubFlags, 
                                              Module* pSigModule, PCCOR_SIGNATURE pSig, DWORD cbSig, SigTypeContext *pTypeContext,
@@ -129,7 +128,7 @@ MethodDesc* ILStubCache::CreateAndLinkNewILStubMethodDesc(LoaderAllocator* pAllo
         pStubLinker->GenerateCode(pbBuffer, cbCode);
         pStubLinker->GetLocalSig(pbLocalSig, cbSig);
 
-        pResolver->SetJitFlags(CORJIT_FLG_IL_STUB);
+        pResolver->SetJitFlags(CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB));
     }
 
     pResolver->SetTokenLookupMap(pStubLinker->GetTokenLookupMap());
@@ -137,7 +136,6 @@ MethodDesc* ILStubCache::CreateAndLinkNewILStubMethodDesc(LoaderAllocator* pAllo
     RETURN pStubMD;
 
 }
-#endif
 
 // static
 MethodDesc* ILStubCache::CreateNewMethodDesc(LoaderHeap* pCreationHeap, MethodTable* pMT, DWORD dwStubFlags, 
@@ -219,6 +217,12 @@ MethodDesc* ILStubCache::CreateNewMethodDesc(LoaderHeap* pCreationHeap, MethodTa
     else
 #endif
 #ifdef FEATURE_STUBS_AS_IL
+    if (SF_IsSecureDelegateStub(dwStubFlags))
+    {
+        pMD->m_dwExtendedFlags |= DynamicMethodDesc::nomdSecureDelegateStub;
+        pMD->GetILStubResolver()->SetStubType(ILStubResolver::SecureDelegateStub);
+    }
+    else
     if (SF_IsMulticastDelegateStub(dwStubFlags))
     {
         pMD->m_dwExtendedFlags |= DynamicMethodDesc::nomdMulticastStub;

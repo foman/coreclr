@@ -159,7 +159,6 @@ namespace System.Globalization {
         // . is a delimiter, but the value of . doesn't matter.
         // '_' marks the space between the japanese era name, japanese abbreviated era name
         //     english name, and abbreviated english names.
-        [System.Security.SecuritySafeCritical]  // auto-generated
         private static EraInfo[] GetErasFromRegistry()
         {
             // Look in the registry key and see if we can find any ranges
@@ -172,7 +171,7 @@ namespace System.Globalization {
                 PermissionSet permSet = new PermissionSet(PermissionState.None);
                 permSet.AddPermission(new RegistryPermission(RegistryPermissionAccess.Read, c_japaneseErasHivePermissionList));
                 permSet.Assert();
-                RegistryKey key = RegistryKey.GetBaseKey(RegistryKey.HKEY_LOCAL_MACHINE).OpenSubKey(c_japaneseErasHive, false);
+                RegistryKey key = Registry.LocalMachine.OpenSubKey(c_japaneseErasHive, writable: false);
 
                 // Abort if we didn't find anything
                 if (key == null) return null;
@@ -491,14 +490,14 @@ namespace System.Globalization {
 
         public override int ToFourDigitYear(int year) {
             if (year <= 0) {
-                throw new ArgumentOutOfRangeException("year",
+                throw new ArgumentOutOfRangeException(nameof(year),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             }
             Contract.EndContractBlock();
 
             if (year > helper.MaxYear) {
                 throw new ArgumentOutOfRangeException(
-                            "year",
+                            nameof(year),
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Range"),

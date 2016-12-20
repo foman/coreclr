@@ -17,7 +17,6 @@ using System.Threading;
 
 namespace System.Runtime.Loader
 {
-    [System.Security.SecuritySafeCritical]
     public abstract class AssemblyLoadContext
     {
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
@@ -31,6 +30,10 @@ namespace System.Runtime.Loader
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern IntPtr InitializeAssemblyLoadContext(IntPtr ptrAssemblyLoadContext, bool fRepresentsTPALoadContext);
+
+        [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
+        [SuppressUnmanagedCodeSecurity]
+        private static extern IntPtr LoadFromAssemblyName(IntPtr ptrNativeAssemblyLoadContext, bool fRepresentsTPALoadContext);
         
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
@@ -58,7 +61,6 @@ namespace System.Runtime.Loader
             InitializeLoadContext(fRepresentsTPALoadContext);
         }
         
-        [System.Security.SecuritySafeCritical]
         void InitializeLoadContext(bool fRepresentsTPALoadContext)
         {
             // Initialize the VM side of AssemblyLoadContext if not already done.
@@ -79,6 +81,17 @@ namespace System.Runtime.Loader
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void LoadFromPath(IntPtr ptrNativeAssemblyLoadContext, string ilPath, string niPath, ObjectHandleOnStack retAssembly);
+
+        [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
+        [SuppressUnmanagedCodeSecurity]
+        private static extern void GetLoadedAssembliesInternal(ObjectHandleOnStack assemblies);
+        
+        public static Assembly[] GetLoadedAssemblies()
+        {
+            Assembly[] assemblies = null;
+            GetLoadedAssembliesInternal(JitHelpers.GetObjectHandleOnStack(ref assemblies));
+            return assemblies;
+        }
         
         // These are helpers that can be used by AssemblyLoadContext derivations.
         // They are used to load assemblies in DefaultContext.
@@ -86,12 +99,12 @@ namespace System.Runtime.Loader
         {
             if (assemblyPath == null)
             {
-                throw new ArgumentNullException("assemblyPath");
+                throw new ArgumentNullException(nameof(assemblyPath));
             }
 
-            if (Path.IsRelative(assemblyPath))
+            if (PathInternal.IsPartiallyQualified(assemblyPath))
             {
-                throw new ArgumentException( Environment.GetResourceString("Argument_AbsolutePathRequired"), "assemblyPath");
+                throw new ArgumentException( Environment.GetResourceString("Argument_AbsolutePathRequired"), nameof(assemblyPath));
             }
 
             RuntimeAssembly loadedAssembly = null;
@@ -103,24 +116,17 @@ namespace System.Runtime.Loader
         {
             if (nativeImagePath == null)
             {
-                throw new ArgumentNullException("nativeImagePath");
+                throw new ArgumentNullException(nameof(nativeImagePath));
             }
 
-            if (Path.IsRelative(nativeImagePath))
+            if (PathInternal.IsPartiallyQualified(nativeImagePath))
             {
-                throw new ArgumentException( Environment.GetResourceString("Argument_AbsolutePathRequired"), "nativeImagePath");
+                throw new ArgumentException( Environment.GetResourceString("Argument_AbsolutePathRequired"), nameof(nativeImagePath));
             }
 
-            // Check if the nativeImagePath has ".ni.dll" or ".ni.exe" extension
-            if (!(nativeImagePath.EndsWith(".ni.dll", StringComparison.InvariantCultureIgnoreCase) || 
-                  nativeImagePath.EndsWith(".ni.exe", StringComparison.InvariantCultureIgnoreCase)))
+            if (assemblyPath != null && PathInternal.IsPartiallyQualified(assemblyPath))
             {
-                throw new ArgumentException("nativeImagePath");
-            }
-
-            if (assemblyPath != null && Path.IsRelative(assemblyPath))
-            {
-                throw new ArgumentException(Environment.GetResourceString("Argument_AbsolutePathRequired"), "assemblyPath");
+                throw new ArgumentException(Environment.GetResourceString("Argument_AbsolutePathRequired"), nameof(assemblyPath));
             }
 
             // Basic validation has succeeded - lets try to load the NI image.
@@ -139,7 +145,7 @@ namespace System.Runtime.Loader
         {
             if (assembly == null)
             {
-                throw new ArgumentNullException("assembly");
+                throw new ArgumentNullException(nameof(assembly));
             }
             
             int iAssemblyStreamLength = (int)assembly.Length;
@@ -184,7 +190,17 @@ namespace System.Runtime.Loader
         {
             AssemblyLoadContext context = (AssemblyLoadContext)(GCHandle.FromIntPtr(gchManagedAssemblyLoadContext).Target);
             
-            return context.LoadFromAssemblyName(assemblyName);
+            return context.ResolveUsingLoad(assemblyName);
+        }
+        
+        // This method is invoked by the VM to resolve an assembly reference using the Resolving event
+        // after trying assembly resolution via Load override and TPA load context without success.
+        private static Assembly ResolveUsingResolvingEvent(IntPtr gchManagedAssemblyLoadContext, AssemblyName assemblyName)
+        {
+            AssemblyLoadContext context = (AssemblyLoadContext)(GCHandle.FromIntPtr(gchManagedAssemblyLoadContext).Target);
+            
+            // Invoke the AssemblyResolve event callbacks if wired up
+            return context.ResolveUsingEvent(assemblyName);
         }
         
         private Assembly GetFirstResolvedAssembly(AssemblyName assemblyName)
@@ -210,23 +226,8 @@ namespace System.Runtime.Loader
             return resolvedAssembly;
         }
 
-        public Assembly LoadFromAssemblyName(AssemblyName assemblyName)
+        private Assembly ValidateAssemblyNameWithSimpleName(Assembly assembly, string requestedSimpleName)
         {
-            // AssemblyName is mutable. Cache the expected name before anybody gets a chance to modify it.
-            string requestedSimpleName = assemblyName.Name;
- 
-            Assembly assembly = Load(assemblyName);
-            if (assembly == null)
-            {
-                // Invoke the AssemblyResolve event callbacks if wired up
-                assembly = GetFirstResolvedAssembly(assemblyName);
-            }
-
-            if (assembly == null)
-            {
-                throw new FileNotFoundException(Environment.GetResourceString("IO.FileLoad"), requestedSimpleName);
-            }
-            
             // Get the name of the loaded assembly
             string loadedSimpleName = null;
             
@@ -244,7 +245,49 @@ namespace System.Runtime.Loader
                 throw new InvalidOperationException(Environment.GetResourceString("Argument_CustomAssemblyLoadContextRequestedNameMismatch"));
  
             return assembly;
+            
+        }
+        
+        private Assembly ResolveUsingLoad(AssemblyName assemblyName)
+        {
+            string simpleName = assemblyName.Name;
+            Assembly assembly = Load(assemblyName);
+            
+            if (assembly != null)
+            {
+                assembly = ValidateAssemblyNameWithSimpleName(assembly, simpleName);
+            }
+            
+            return assembly;
+        }
+        
+        private Assembly ResolveUsingEvent(AssemblyName assemblyName)
+        {
+            string simpleName = assemblyName.Name;
+            
+            // Invoke the AssemblyResolve event callbacks if wired up
+            Assembly assembly = GetFirstResolvedAssembly(assemblyName);
+            if (assembly != null)
+            {
+                assembly = ValidateAssemblyNameWithSimpleName(assembly, simpleName);
+            }
+            
+            // Since attempt to resolve the assembly via Resolving event is the last option,
+            // throw an exception if we do not find any assembly.
+            if (assembly == null)
+            {
+                throw new FileNotFoundException(Environment.GetResourceString("IO.FileLoad"), simpleName);
+            }
+            
+            return assembly;
+        }
+        
+        public Assembly LoadFromAssemblyName(AssemblyName assemblyName)
+        {
+            // Attempt to load the assembly, using the same ordering as static load, in the current load context.
+            Assembly loadedAssembly = Assembly.Load(assemblyName, m_pNativeAssemblyLoadContext);
 
+            return loadedAssembly;
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
@@ -257,15 +300,15 @@ namespace System.Runtime.Loader
         {
             if (unmanagedDllPath == null)
             {
-                throw new ArgumentNullException("unmanagedDllPath");
+                throw new ArgumentNullException(nameof(unmanagedDllPath));
             }
             if (unmanagedDllPath.Length == 0)
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyPath"), "unmanagedDllPath");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyPath"), nameof(unmanagedDllPath));
             }
-            if (Path.IsRelative(unmanagedDllPath))
+            if (PathInternal.IsPartiallyQualified(unmanagedDllPath))
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_AbsolutePathRequired"), "unmanagedDllPath");
+                throw new ArgumentException(Environment.GetResourceString("Argument_AbsolutePathRequired"), nameof(unmanagedDllPath));
             }
 
             return InternalLoadUnmanagedDllFromPath(unmanagedDllPath);
@@ -321,7 +364,7 @@ namespace System.Runtime.Loader
         {
             if (context == null)
             {
-                throw new ArgumentNullException("context");
+                throw new ArgumentNullException(nameof(context));
             }
             
             // Try to override the default assembly load context
@@ -344,10 +387,10 @@ namespace System.Runtime.Loader
         {
             if (assemblyPath == null)
             {
-                throw new ArgumentNullException("assemblyPath");
+                throw new ArgumentNullException(nameof(assemblyPath));
             }
-            
-            String fullPath = Path.GetFullPathInternal(assemblyPath);
+
+            string fullPath = Path.GetFullPath(assemblyPath);
             return nGetFileInformation(fullPath);
         }
 
@@ -360,23 +403,30 @@ namespace System.Runtime.Loader
         {
             if (assembly == null)
             {
-                throw new ArgumentNullException("assembly");
+                throw new ArgumentNullException(nameof(assembly));
             }
             
             AssemblyLoadContext loadContextForAssembly = null;
-            IntPtr ptrAssemblyLoadContext = GetLoadContextForAssembly((RuntimeAssembly)assembly);
-            if (ptrAssemblyLoadContext == IntPtr.Zero)
-            {
-                // If the load context is returned null, then the assembly was bound using the TPA binder
-                // and we shall return reference to the active "Default" binder - which could be the TPA binder
-                // or an overridden CLRPrivBinderAssemblyLoadContext instance.
-                loadContextForAssembly = AssemblyLoadContext.Default;
-            }
-            else
-            {
-                loadContextForAssembly = (AssemblyLoadContext)(GCHandle.FromIntPtr(ptrAssemblyLoadContext).Target);
-            }
+
+            RuntimeAssembly rtAsm = assembly as RuntimeAssembly;
             
+            // We only support looking up load context for runtime assemblies.
+            if (rtAsm != null)
+            {
+                IntPtr ptrAssemblyLoadContext = GetLoadContextForAssembly(rtAsm);
+                if (ptrAssemblyLoadContext == IntPtr.Zero)
+                {
+                    // If the load context is returned null, then the assembly was bound using the TPA binder
+                    // and we shall return reference to the active "Default" binder - which could be the TPA binder
+                    // or an overridden CLRPrivBinderAssemblyLoadContext instance.
+                    loadContextForAssembly = AssemblyLoadContext.Default;
+                }
+                else
+                {
+                    loadContextForAssembly = (AssemblyLoadContext)(GCHandle.FromIntPtr(ptrAssemblyLoadContext).Target);
+                }
+            }
+
             return loadContextForAssembly;
         }
         
@@ -418,20 +468,59 @@ namespace System.Runtime.Loader
 
         // Synchronization primitive for controlling initialization of Default load context
         private static readonly object s_initLock = new Object();
+
+        // Occurs when an Assembly is loaded
+        public static event AssemblyLoadEventHandler AssemblyLoad 
+        { 
+            add { AppDomain.CurrentDomain.AssemblyLoad += value; } 
+            remove { AppDomain.CurrentDomain.AssemblyLoad -= value; } 
+        }
+
+        // Occurs when resolution of type fails
+        public static event ResolveEventHandler TypeResolve 
+        { 
+            add { AppDomain.CurrentDomain.TypeResolve += value; } 
+            remove { AppDomain.CurrentDomain.TypeResolve -= value; } 
+        }
+
+        // Occurs when resolution of resource fails
+        public static event ResolveEventHandler ResourceResolve 
+        { 
+            add { AppDomain.CurrentDomain.ResourceResolve += value; } 
+            remove { AppDomain.CurrentDomain.ResourceResolve -= value; } 
+        } 
+
+        // Occurs when resolution of assembly fails
+        // This event is fired after resolve events of AssemblyLoadContext fails
+        public static event ResolveEventHandler AssemblyResolve
+        {
+            add { AppDomain.CurrentDomain.AssemblyResolve += value; } 
+            remove { AppDomain.CurrentDomain.AssemblyResolve -= value; } 
+        }
     }
 
-    [System.Security.SecuritySafeCritical]
     class AppPathAssemblyLoadContext : AssemblyLoadContext
     {
         internal AppPathAssemblyLoadContext() : base(true)
         {
         }
 
-        [System.Security.SecuritySafeCritical]  
         protected override Assembly Load(AssemblyName assemblyName)
         {
             // We were loading an assembly into TPA ALC that was not found on TPA list. As a result we are here.
             // Returning null will result in the AssemblyResolve event subscribers to be invoked to help resolve the assembly.
+            return null;
+        }
+    }
+
+    internal class IndividualAssemblyLoadContext : AssemblyLoadContext
+    {
+        internal IndividualAssemblyLoadContext() : base(false)
+        {
+        }
+
+        protected override Assembly Load(AssemblyName assemblyName)
+        {
             return null;
         }
     }

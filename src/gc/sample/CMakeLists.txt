@@ -17,17 +17,18 @@ set(SOURCES
     ../handletablecore.cpp
     ../handletablescan.cpp
     ../objecthandle.cpp
+    ../softwarewritewatch.cpp
 )
 
 if(WIN32)
     list(APPEND SOURCES
-        gcenv.windows.cpp)
+        ../gcenv.windows.cpp)
     add_definitions(-DUNICODE=1)
 else()
     list(APPEND SOURCES
-        gcenv.unix.cpp)
+        ../gcenv.unix.cpp)
 endif()
 
-add_executable(gcsample
+_add_executable(gcsample
     ${SOURCES}
 )

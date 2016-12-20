@@ -22,15 +22,15 @@ bool g_fAllowNativeImages = true;
 //
 // Default install library
 //
-const WCHAR g_pwBaseLibrary[]     = W("mscorlib.dll");
-const WCHAR g_pwBaseLibraryName[] = W("mscorlib");
-const char g_psBaseLibrary[]      = "mscorlib.dll";
-const char g_psBaseLibraryName[]  = "mscorlib";
-const char g_psBaseLibrarySatelliteAssemblyName[]  = "mscorlib.resources";
+const WCHAR g_pwBaseLibrary[]     = CoreLibName_IL_W;
+const WCHAR g_pwBaseLibraryName[] = CoreLibName_W;
+const char g_psBaseLibrary[]      = CoreLibName_IL_A;
+const char g_psBaseLibraryName[]  = CoreLibName_A;
+const char g_psBaseLibrarySatelliteAssemblyName[]  = CoreLibSatelliteName_A;
 
 #ifdef FEATURE_COMINTEROP
-const WCHAR g_pwBaseLibraryTLB[]  = W("mscorlib.tlb");
-const char g_psBaseLibraryTLB[]   = "mscorlib.tlb";
+const WCHAR g_pwBaseLibraryTLB[]  = CoreLibName_TLB_W;
+const char g_psBaseLibraryTLB[]   = CoreLibName_TLB_A;
 #endif  // FEATURE_COMINTEROP
 
 Volatile<LONG>       g_TrapReturningThreads;
@@ -69,6 +69,9 @@ GPTR_IMPL(MethodTable,      g_pStringClass);
 GPTR_IMPL(MethodTable,      g_pArrayClass);
 GPTR_IMPL(MethodTable,      g_pSZArrayHelperClass);
 GPTR_IMPL(MethodTable,      g_pNullableClass);
+#ifdef FEATURE_SPAN_OF_T
+GPTR_IMPL(MethodTable,      g_pByReferenceClass);
+#endif
 GPTR_IMPL(MethodTable,      g_pExceptionClass);
 GPTR_IMPL(MethodTable,      g_pThreadAbortExceptionClass);
 GPTR_IMPL(MethodTable,      g_pOutOfMemoryExceptionClass);
@@ -79,13 +82,15 @@ GPTR_IMPL(MethodTable,      g_pMulticastDelegateClass);
 GPTR_IMPL(MethodTable,      g_pValueTypeClass);
 GPTR_IMPL(MethodTable,      g_pEnumClass);
 GPTR_IMPL(MethodTable,      g_pThreadClass);
+#ifdef FEATURE_CER
 GPTR_IMPL(MethodTable,      g_pCriticalFinalizerObjectClass);
+#endif
+#ifndef FEATURE_CORECLR
 GPTR_IMPL(MethodTable,      g_pAsyncFileStream_AsyncResultClass);
+#endif // !FEATURE_CORECLR
 GPTR_IMPL(MethodTable,      g_pFreeObjectMethodTable);
 GPTR_IMPL(MethodTable,      g_pOverlappedDataClass);
 
-GPTR_IMPL(MethodTable,      g_ArgumentHandleMT);
-GPTR_IMPL(MethodTable,      g_ArgIteratorMT);
 GPTR_IMPL(MethodTable,      g_TypedReferenceMT);
 
 GPTR_IMPL(MethodTable,      g_pByteArrayMT);
@@ -100,7 +105,9 @@ GPTR_IMPL(MethodTable,      g_pICastableInterface);
 #endif // FEATURE_ICASTABLE
 
 
+#ifdef FEATURE_CER
 GPTR_IMPL(MethodDesc,       g_pPrepareConstrainedRegionsMethod);
+#endif
 GPTR_IMPL(MethodDesc,       g_pExecuteBackoutCodeHelperMethod);
 
 GPTR_IMPL(MethodDesc,       g_pObjectCtorMD);
@@ -111,6 +118,10 @@ GPTR_IMPL(Thread,g_pSuspensionThread);
 
 // Global SyncBlock cache
 GPTR_IMPL(SyncTableEntry,g_pSyncTable);
+
+#if defined(ENABLE_PERF_COUNTERS) || defined(FEATURE_EVENT_TRACE)
+DWORD g_dwHandles = 0;
+#endif // ENABLE_PERF_COUNTERS || FEATURE_EVENT_TRACE
 
 #ifdef STRESS_LOG
 GPTR_IMPL_INIT(StressLog, g_pStressLog, &StressLog::theLog);

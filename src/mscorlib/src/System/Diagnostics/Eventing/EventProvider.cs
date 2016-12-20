@@ -1,9 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
-
 using Microsoft.Win32;
-
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -19,12 +17,6 @@ using Contract = System.Diagnostics.Contracts.Contract;
 #else
 using Contract = Microsoft.Diagnostics.Contracts.Internal.Contract;
 #endif
-
-#if ES_BUILD_STANDALONE
-using Environment = Microsoft.Diagnostics.Tracing.Internal.Environment;
-using EventDescriptor = Microsoft.Diagnostics.Tracing.EventDescriptor;
-#endif
-
 
 #if ES_BUILD_AGAINST_DOTNET_V35
 using Microsoft.Internal;       // for Tuple (can't define alias for open generic types so we "use" the whole namespace)
@@ -82,15 +74,12 @@ namespace System.Diagnostics.Tracing
 
         private static bool m_setInformationMissing;
 
-        [SecurityCritical]
         UnsafeNativeMethods.ManifestEtw.EtwEnableCallback m_etwCallback;     // Trace Callback function
         private long m_regHandle;                        // Trace Registration Handle
         private byte m_level;                            // Tracing Level
         private long m_anyKeywordMask;                   // Trace Enable Flags
         private long m_allKeywordMask;                   // Match all keyword
-#if ES_SESSION_INFO || FEATURE_ACTIVITYSAMPLING
         private List<SessionInfo> m_liveSessions;        // current live sessions (Tuple<sessionIdBit, etwSessionId>)
-#endif
         private bool m_enabled;                          // Enabled flag from Trace callback
         private Guid m_providerId;                       // Control Guid 
         internal bool m_disposed;                        // when true provider has unregistered
@@ -99,7 +88,7 @@ namespace System.Diagnostics.Tracing
         private static WriteEventErrorCode s_returnCode; // The last return code 
 
         private const int s_basicTypeAllocationBufferSize = 16;
-        private const int s_etwMaxNumberArguments = 32;
+        private const int s_etwMaxNumberArguments = 128;
         private const int s_etwAPIMaxRefObjCount = 8;
         private const int s_maxEventDataDescriptors = 128;
         private const int s_traceEventMaximumSize = 65482;
@@ -138,7 +127,6 @@ namespace System.Diagnostics.Tracing
         // <SatisfiesLinkDemand Name="Win32Exception..ctor(System.Int32)" />
         // <ReferencesCritical Name="Method: EtwEnableCallBack(Guid&, Int32, Byte, Int64, Int64, Void*, Void*):Void" Ring="1" />
         // </SecurityKernel>
-        [System.Security.SecurityCritical]
         internal unsafe void Register(Guid providerGuid)
         {
             m_providerId = providerGuid;
@@ -167,7 +155,6 @@ namespace System.Diagnostics.Tracing
         // <SecurityKernel Critical="True" TreatAsSafe="Does not expose critical resource" Ring="1">
         // <ReferencesCritical Name="Method: Deregister():Void" Ring="1" />
         // </SecurityKernel>
-        [System.Security.SecuritySafeCritical]
         protected virtual void Dispose(bool disposing)
         {
             //
@@ -185,16 +172,31 @@ namespace System.Diagnostics.Tracing
             // Disable the provider.  
             m_enabled = false;
 
-            // Do most of the work under a lock to avoid shutdown race.  
+            // Do most of the work under a lock to avoid shutdown race.
+
+            long registrationHandle = 0;  
             lock (EventListener.EventListenersLock)
             {
                 // Double check
                 if (m_disposed)
                     return;
 
-                Deregister();
+                registrationHandle = m_regHandle;
+                m_regHandle = 0;
                 m_disposed = true;
             }
+
+            // We do the Unregistration outside the EventListenerLock because there is a lock
+            // inside the ETW routines.   This lock is taken before ETW issues commands
+            // Thus the ETW lock gets taken first and then our EventListenersLock gets taken
+            // in SendCommand(), and also here.  If we called EventUnregister after taking
+            // the EventListenersLock then the take-lock order is reversed and we can have
+            // deadlocks in race conditions (dispose racing with an ETW command).   
+            // 
+            // We solve by Unregistering after releasing the EventListenerLock.     
+            if (registrationHandle != 0)
+                EventUnregister(registrationHandle);
+
         }
 
         /// <summary>
@@ -211,37 +213,18 @@ namespace System.Diagnostics.Tracing
             Dispose(false);
         }
 
-        /// <summary>
-        /// This method un-registers from ETW.
-        /// </summary>
         // <SecurityKernel Critical="True" Ring="0">
-        // <CallsSuppressUnmanagedCode Name="UnsafeNativeMethods.ManifestEtw.EventUnregister(System.Int64):System.Int32" />
+        // <UsesUnsafeCode Name="Parameter filterData of type: Void*" />
+        // <UsesUnsafeCode Name="Parameter callbackContext of type: Void*" />
         // </SecurityKernel>
-        // TODO Check return code from UnsafeNativeMethods.ManifestEtw.EventUnregister
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA1806:DoNotIgnoreMethodResults", MessageId = "Microsoft.Win32.UnsafeNativeMethods.ManifestEtw.EventUnregister(System.Int64)"), System.Security.SecurityCritical]
-        private unsafe void Deregister()
-        {
-            //
-            // Unregister from ETW using the RegHandle saved from
-            // the register call.
-            //
-
-            if (m_regHandle != 0)
-            {
-                EventUnregister();
-                m_regHandle = 0;
-            }
-        }
-        
-        [System.Security.SecurityCritical]
         unsafe void EtwEnableCallBack(
-                        ref System.Guid sourceId,
-                        int controlCode,
-                        byte setLevel,
-                        long anyKeyword,
-                        long allKeyword,
-                        UnsafeNativeMethods.ManifestEtw.EVENT_FILTER_DESCRIPTOR* filterData,
-                        void* callbackContext
+                        [In] ref System.Guid sourceId,
+                        [In] int controlCode,
+                        [In] byte setLevel,
+                        [In] long anyKeyword,
+                        [In] long allKeyword,
+                        [In] UnsafeNativeMethods.ManifestEtw.EVENT_FILTER_DESCRIPTOR* filterData,
+                        [In] void* callbackContext
                         )
         {
             // This is an optional callback API. We will therefore ignore any failures that happen as a 
@@ -252,7 +235,6 @@ namespace System.Diagnostics.Tracing
                 ControllerCommand command = ControllerCommand.Update;
                 IDictionary<string, string> args = null;
                 bool skipFinalOnControllerCommand = false;
-
                 if (controlCode == UnsafeNativeMethods.ManifestEtw.EVENT_CONTROL_CODE_ENABLE_PROVIDER)
                 {
                     m_enabled = true;
@@ -265,7 +247,7 @@ namespace System.Diagnostics.Tracing
                     // today we use FEATURE_ACTIVITYSAMPLING to determine if this code is there or not.
                     // However we put it in the #if so that we don't lose the fact that this feature
                     // switch is at least partially independent of FEATURE_ACTIVITYSAMPLING
-#if ES_SESSION_INFO || FEATURE_ACTIVITYSAMPLING
+
                     List<Tuple<SessionInfo, bool>> sessionsChanged = GetSessions();
                     foreach (var session in sessionsChanged)
                     {
@@ -306,7 +288,6 @@ namespace System.Diagnostics.Tracing
                         // execute OnControllerCommand once for every session that has changed.
                         OnControllerCommand(command, args, (bEnabling ? sessionChanged : -sessionChanged), etwSessionId);
                     }
-#endif
                 }
                 else if (controlCode == UnsafeNativeMethods.ManifestEtw.EVENT_CONTROL_CODE_DISABLE_PROVIDER)
                 {
@@ -314,9 +295,7 @@ namespace System.Diagnostics.Tracing
                     m_level = 0;
                     m_anyKeywordMask = 0;
                     m_allKeywordMask = 0;
-#if ES_SESSION_INFO || FEATURE_ACTIVITYSAMPLING
                     m_liveSessions = null;
-#endif
                 }
                 else if (controlCode == UnsafeNativeMethods.ManifestEtw.EVENT_CONTROL_CODE_CAPTURE_STATE)
                 {
@@ -348,7 +327,6 @@ namespace System.Diagnostics.Tracing
             return idx;
         }
 
-#if ES_SESSION_INFO || FEATURE_ACTIVITYSAMPLING
         /// <summary>
         /// Determines the ETW sessions that have been added and/or removed to the set of
         /// sessions interested in the current provider. It does so by (1) enumerating over all
@@ -359,13 +337,12 @@ namespace System.Diagnostics.Tracing
         /// ETW session that was added or remove, and the bool specifies whether the
         /// session was added or whether it was removed from the set.
         /// </summary>
-        [System.Security.SecuritySafeCritical]
         private List<Tuple<SessionInfo, bool>> GetSessions()
         {
             List<SessionInfo> liveSessionList = null;
 
             GetSessionInfo((Action<int, long>)
-                ((etwSessionId, matchAllKeywords) => 
+                ((etwSessionId, matchAllKeywords) =>
                     GetSessionInfoCallback(etwSessionId, matchAllKeywords, ref liveSessionList)));
 
             List<Tuple<SessionInfo, bool>> changedSessionList = new List<Tuple<SessionInfo, bool>>();
@@ -380,7 +357,7 @@ namespace System.Diagnostics.Tracing
                     if ((idx = IndexOfSessionInList(liveSessionList, s.etwSessionId)) < 0 ||
                         (liveSessionList[idx].sessionIdBit != s.sessionIdBit))
                         changedSessionList.Add(Tuple.Create(s, false));
-                        
+
                 }
             }
             // next look for sessions that were created since the last callback  (or have changed)
@@ -397,7 +374,6 @@ namespace System.Diagnostics.Tracing
             }
 
             m_liveSessions = liveSessionList;
-
             return changedSessionList;
         }
 
@@ -436,7 +412,6 @@ namespace System.Diagnostics.Tracing
         /// for the current process ID, calling 'action' for each session, and passing it the
         /// ETW session and the 'AllKeywords' the session enabled for the current provider.
         /// </summary>
-        [System.Security.SecurityCritical]
         private unsafe void GetSessionInfo(Action<int, long> action)
         {
             // We wish the EventSource package to be legal for Windows Store applications.   
@@ -447,7 +422,7 @@ namespace System.Diagnostics.Tracing
 
             // However the framework version of EventSource DOES have ES_SESSION_INFO defined and thus
             // does not have this issue.  
-#if ES_SESSION_INFO
+#if ES_SESSION_INFO || !ES_BUILD_STANDALONE  
             int buffSize = 256;     // An initial guess that probably works most of the time.  
             byte* buffer;
             for (; ; )
@@ -482,12 +457,20 @@ namespace System.Diagnostics.Tracing
                 }
                 if (providerInstance->NextOffset == 0)
                     break;
-                Contract.Assert(0 <= providerInstance->NextOffset && providerInstance->NextOffset < buffSize);
+                Debug.Assert(0 <= providerInstance->NextOffset && providerInstance->NextOffset < buffSize);
                 var structBase = (byte*)providerInstance;
                 providerInstance = (UnsafeNativeMethods.ManifestEtw.TRACE_PROVIDER_INSTANCE_INFO*)&structBase[providerInstance->NextOffset];
             }
 #else 
-#if !ES_BUILD_PCL && !FEATURE_PAL   // TODO command arguments don't work on PCL builds...
+#if !ES_BUILD_PCL && !FEATURE_PAL  // TODO command arguments don't work on PCL builds...
+            // This code is only used in the Nuget Package Version of EventSource.  because
+            // the code above is using APIs baned from UWP apps.     
+            // 
+            // TODO: In addition to only working when TraceEventSession enables the provider, this code
+            // also has a problem because TraceEvent does not clean up if the registry is stale 
+            // It is unclear if it is worth keeping, but for now we leave it as it does work
+            // at least some of the time.  
+
             // Determine our session from what is in the registry.  
             string regKey = @"\Microsoft\Windows\CurrentVersion\Winevt\Publishers\{" + m_providerId + "}";
             if (System.Runtime.InteropServices.Marshal.SizeOf(typeof(IntPtr)) == 8)
@@ -500,7 +483,7 @@ namespace System.Diagnostics.Tracing
             {
                 foreach (string valueName in key.GetValueNames())
                 {
-                    if (valueName.StartsWith("ControllerData_Session_"))
+                    if (valueName.StartsWith("ControllerData_Session_", StringComparison.Ordinal))
                     {
                         string strId = valueName.Substring(23);      // strip of the ControllerData_Session_
                         int etwSessionId;
@@ -512,7 +495,7 @@ namespace System.Diagnostics.Tracing
                             if (data != null)
                             {
                                 var dataAsString = System.Text.Encoding.UTF8.GetString(data);
-                                int keywordIdx = dataAsString.IndexOf("EtwSessionKeyword");
+                                int keywordIdx = dataAsString.IndexOf("EtwSessionKeyword", StringComparison.Ordinal);
                                 if (0 <= keywordIdx)
                                 {
                                     int startIdx = keywordIdx + 18;
@@ -545,9 +528,8 @@ namespace System.Diagnostics.Tracing
                 if (sessions[i].etwSessionId == etwSessionId)
                     return i;
 
-            return -1;    
+            return -1;
         }
-#endif
 
         /// <summary>
         /// Gets any data to be passed from the controller to the provider.  It starts with what is passed
@@ -557,10 +539,8 @@ namespace System.Diagnostics.Tracing
         /// returns an array of bytes representing the data, the index into that byte array where the data
         /// starts, and the command being issued associated with that data.  
         /// </summary>
-        [System.Security.SecurityCritical]
         private unsafe bool GetDataFromController(int etwSessionId,
-                UnsafeNativeMethods.ManifestEtw.EVENT_FILTER_DESCRIPTOR* filterData,
-                out ControllerCommand command, out byte[] data, out int dataStart)
+                UnsafeNativeMethods.ManifestEtw.EVENT_FILTER_DESCRIPTOR* filterData, out ControllerCommand command, out byte[] data, out int dataStart)
         {
             data = null;
             dataStart = 0;
@@ -691,7 +671,6 @@ namespace System.Diagnostics.Tracing
         // <UsesUnsafeCode Name="Parameter dataDescriptor of type: EventData*" />
         // <UsesUnsafeCode Name="Parameter dataBuffer of type: Byte*" />
         // </SecurityKernel>
-        [System.Security.SecurityCritical]
         private static unsafe object EncodeObject(ref object data, ref EventData* dataDescriptor, ref byte* dataBuffer, ref uint totalEventSize)
         /*++
 
@@ -940,7 +919,6 @@ namespace System.Diagnostics.Tracing
         // </SecurityKernel>
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA1502:AvoidExcessiveComplexity", Justification = "Performance-critical code")]
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
-        [System.Security.SecurityCritical]
         internal unsafe bool WriteEvent(ref EventDescriptor eventDescriptor, Guid* activityID, Guid* childActivityID, params object[] eventPayload)
         {
             int status = 0;
@@ -1137,18 +1115,17 @@ namespace System.Diagnostics.Tracing
         // <CallsSuppressUnmanagedCode Name="UnsafeNativeMethods.ManifestEtw.EventWrite(System.Int64,EventDescriptor&,System.UInt32,System.Void*):System.UInt32" />
         // </SecurityKernel>
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
-        [System.Security.SecurityCritical]
         internal unsafe protected bool WriteEvent(ref EventDescriptor eventDescriptor, Guid* activityID, Guid* childActivityID, int dataCount, IntPtr data)
         {
             if (childActivityID != null)
             {
                 // activity transfers are supported only for events that specify the Send or Receive opcode
-                Contract.Assert((EventOpcode)eventDescriptor.Opcode == EventOpcode.Send ||
+                Debug.Assert((EventOpcode)eventDescriptor.Opcode == EventOpcode.Send ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Receive ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Start ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Stop);
             }
-            
+
             int status = UnsafeNativeMethods.ManifestEtw.EventWriteTransferWrapper(m_regHandle, ref eventDescriptor, activityID, childActivityID, dataCount, (EventData*)data);
 
             if (status != 0)
@@ -1160,7 +1137,6 @@ namespace System.Diagnostics.Tracing
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
-        [System.Security.SecurityCritical]
         internal unsafe bool WriteEventRaw(
             ref EventDescriptor eventDescriptor,
             Guid* activityID,
@@ -1168,7 +1144,9 @@ namespace System.Diagnostics.Tracing
             int dataCount,
             IntPtr data)
         {
-            int status = UnsafeNativeMethods.ManifestEtw.EventWriteTransferWrapper(
+            int status;
+
+            status = UnsafeNativeMethods.ManifestEtw.EventWriteTransferWrapper(
                 m_regHandle,
                 ref eventDescriptor,
                 activityID,
@@ -1184,22 +1162,19 @@ namespace System.Diagnostics.Tracing
             return true;
         }
 
+
         // These are look-alikes to the Manifest based ETW OS APIs that have been shimmed to work
         // either with Manifest ETW or Classic ETW (if Manifest based ETW is not available).  
-        [SecurityCritical]
         private unsafe uint EventRegister(ref Guid providerId, UnsafeNativeMethods.ManifestEtw.EtwEnableCallback enableCallback)
         {
             m_providerId = providerId;
             m_etwCallback = enableCallback;
             return UnsafeNativeMethods.ManifestEtw.EventRegister(ref providerId, enableCallback, null, ref m_regHandle);
         }
-        
-        [SecurityCritical]
-        private uint EventUnregister()
+
+        private uint EventUnregister(long registrationHandle)
         {
-            uint status = UnsafeNativeMethods.ManifestEtw.EventUnregister(m_regHandle);
-            m_regHandle = 0;
-            return status;
+            return UnsafeNativeMethods.ManifestEtw.EventUnregister(registrationHandle);
         }
 
         static int[] nibblebits = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 };
@@ -1212,7 +1187,7 @@ namespace System.Diagnostics.Tracing
         }
         private static int bitindex(uint n)
         {
-            Contract.Assert(bitcount(n) == 1);
+            Debug.Assert(bitcount(n) == 1);
             int idx = 0;
             while ((n & (1 << idx)) == 0)
                 idx++;
@@ -1220,3 +1195,4 @@ namespace System.Diagnostics.Tracing
         }
     }
 }
+

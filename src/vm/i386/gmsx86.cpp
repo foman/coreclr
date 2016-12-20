@@ -42,18 +42,31 @@
    
 #if !defined(DACCESS_COMPILE)
 
+#ifdef _MSC_VER
 #pragma optimize("gsy", on )        // optimize to insure that code generation does not have junk in it
+#endif // _MSC_VER
 #pragma warning(disable:4717) 
 
 static int __stdcall zeroFtn() {
     return 0;
 }
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winfinite-recursion"
+#endif
+
 static int __stdcall recursiveFtn() {
     return recursiveFtn()+1;
 }
 
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+#ifdef _MSC_VER
 #pragma optimize("", on )
+#endif // _MSC_VER
 
 
 /* Has mscorwks been instrumented so that calls are morphed into push XXXX call <helper> */
@@ -114,6 +127,11 @@ static bool shouldEnterCall(PTR_BYTE ip) {
     // just work.
     for (int i = 0; i < 48; i++) {
         switch(*ip) {
+            case 0xF2:              // repne
+            case 0xF3:              // repe
+                ip++;
+                break;
+
             case 0x68:              // push 0xXXXXXXXX
                 ip += 5;
 
@@ -665,6 +683,10 @@ void LazyMachState::unwindLazyState(LazyMachState* baseState,
                 ip += 2;
                 break;
 
+            case 0x34:                            // XOR AL, imm8
+                ip += 2;
+                break;
+
             case 0x31:
             case 0x32:
             case 0x33:
@@ -861,6 +883,12 @@ void LazyMachState::unwindLazyState(LazyMachState* baseState,
                 datasize = b16bit?2:4;
                 goto decodeRM;
 
+            case 0x24:                           // AND AL, imm8
+                ip += 2;
+                break;
+
+            case 0x01:                           // ADD mod/rm
+            case 0x03:
             case 0x29:                           // SUB mod/rm
             case 0x2B:
                 datasize = 0;
@@ -1101,7 +1129,7 @@ void LazyMachState::unwindLazyState(LazyMachState* baseState,
                     goto again;
                 }
 #ifndef _PREFIX_
-                *((int*) 0) = 1;        // If you get at this error, it is because yout
+                *((volatile int*) 0) = 1; // If you get at this error, it is because yout
                                         // set a breakpoint in a helpermethod frame epilog
                                         // you can't do that unfortunately.  Just move it
                                         // into the interior of the method to fix it  
@@ -1218,7 +1246,7 @@ void LazyMachState::unwindLazyState(LazyMachState* baseState,
                 // FIX what to do here?
 #ifndef DACCESS_COMPILE
 #ifndef _PREFIX_
-                *((unsigned __int8**) 0) = ip;  // cause an access violation (Free Build assert)
+                *((volatile PTR_BYTE*) 0) = ip;  // cause an access violation (Free Build assert)
 #endif // !_PREFIX_                            
 #else
                 DacNotImpl();

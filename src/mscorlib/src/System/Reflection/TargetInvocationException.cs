@@ -18,12 +18,8 @@ namespace System.Reflection {
     using System;
     using System.Runtime.Serialization;
     [Serializable]
-[System.Runtime.InteropServices.ComVisible(true)]
-#if FEATURE_CORECLR
-    public sealed class TargetInvocationException : Exception {
-#else
+    [System.Runtime.InteropServices.ComVisible(true)]
     public sealed class TargetInvocationException : ApplicationException {
-#endif //FEATURE_CORECLR
         // This exception is not creatable without specifying the
         //    inner exception.
         private TargetInvocationException()

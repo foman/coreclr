@@ -1,6 +1,6 @@
 <!--
 ***********************************************************************************************
-CLRTest.Execute.targets
+CLRTest.Execute.Batch.targets
 
 WARNING:  DO NOT MODIFY this file unless you are knowledgeable about MSBuild and have
           created a backup copy.  Incorrect changes to this file will make it
@@ -17,34 +17,6 @@ WARNING:   When setting properties based on their current state (for example:
 ***********************************************************************************************
 -->
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-
-  <ItemGroup>
-    <CLRTestBatchEnvironmentVariable Condition="'$(CrossGen)' == 'true'" Include="set complus_zaprequire=2" />
-    <CLRTestBatchEnvironmentVariable Condition="'$(CrossGen)' == 'true'" Include="set complus_zaprequireexcludelist=corerun" />
-  </ItemGroup>
-  <!--
-    Target: GetBatchCrossgenScript
-    This returns the portion of the execution script that generates the required lines to crossgen the test executable.
-  -->
-  <Target
-    Condition="'$(CrossGen)'=='true'"
-    Name="GetCrossgenBatchScript"
-    Returns="$(CrossgenBatchScript)">
-    
-    <PropertyGroup>
-<!-- CrossGen will create output if it needs to crossgen. Otherwise there will be silence. -->
-      <CrossgenBatchScript Condition="'$(CLRTestKind)' == 'RunOnly'">
-        <![CDATA[
-if not exist "$([MSBuild]::MakeRelative($(OutputPath), $(_CLRTestToRunFileFullPath)).Replace(".exe", ".ni.exe"))""%CORE_ROOT%\crossgen.exe" /Platform_Assemblies_Paths %CORE_ROOT%%3B. $([MSBuild]::MakeRelative($(OutputPath), $(_CLRTestToRunFileFullPath)))        
-        ]]>
-      </CrossgenBatchScript>
-      <CrossgenBatchScript Condition="'$(CLRTestKind)' == 'BuildAndRun'">
-        <![CDATA[
-if not exist "$(MSBuildProjectName).ni.exe" "%CORE_ROOT%\crossgen.exe" /Platform_Assemblies_Paths %CORE_ROOT%%3B. $(MSBuildProjectName).exe      
-        ]]>
-      </CrossgenBatchScript>
-    </PropertyGroup>
-  </Target>
 
   <Target
     Name="GetIlasmRoundTripBatchScript"
@@ -80,8 +52,11 @@ IF NOT "!ERRORLEVEL!"=="0" (
 
   <!-- This is here because of this bug: http://blogs.msdn.com/b/msbuild/archive/2006/01/03/508629.aspx-->
   <Target Name="FetchExternalProperties">
-    <!--Call GetExecuteShFullPath to get ToRunProject cmd file Path  -->
-    <MSBuild Projects="$(CLRTestProjectToRun)" Targets="GetExecuteShFullPath" Condition="'$(_CLRTestNeedsProjectToRun)' == 'True'">
+    <!--Call GetExecuteCmdFullPath to get ToRunProject cmd file Path  -->
+    <MSBuild Projects="$(CLRTestProjectToRun)" 
+             Targets="GetExecuteCmdFullPath"
+             Properties="GenerateRunScript=True"
+             Condition="'$(_CLRTestNeedsProjectToRun)' == 'True'">
       <Output TaskParameter="TargetOutputs" PropertyName="_CLRTestToRunFileFullPath"/>
     </MSBuild>
   </Target>
@@ -120,21 +95,42 @@ IF NOT "!ERRORLEVEL!"=="0" (
   <Target Name="GenerateBatchExecutionScript"
     Inputs="$(MSBuildProjectFullPath)"
     Outputs="$(OutputPath)\$(MSBuildProjectName).cmd"
-    DependsOnTargets="FetchExternalProperties;GetCrossgenBatchScript;GetIlasmRoundTripBatchScript">
+    DependsOnTargets="FetchExternalProperties;$(BatchScriptSnippetGen);GetJitDisasmBatchScript;GetIlasmRoundTripBatchScript">
 
     <Message Text="Project depends on $(_CLRTestToRunFileFullPath)." Condition="'$(_CLRTestNeedsProjectToRun)' == 'True'" />
 
     <PropertyGroup>
-
+      <BatchCLRTestEnvironmentCompatibilityCheck Condition="'$(GCStressIncompatible)' == 'true'"><![CDATA[
+$(BatchCLRTestEnvironmentCompatibilityCheck)
+IF NOT "%COMPlus_GCStress%"=="" (
+  ECHO SKIPPING EXECUTION BECAUSE COMPlus_GCStress IS SET
+  Exit /b 0
+)
+      ]]></BatchCLRTestEnvironmentCompatibilityCheck>
+      <BatchCLRTestEnvironmentCompatibilityCheck Condition="'$(JitOptimizationSensitive)' == 'true'"><![CDATA[
+$(BatchCLRTestEnvironmentCompatibilityCheck)
+IF "%COMPlus_JitStress%"=="" IF "%COMPlus_JitStressRegs%"=="" IF "%COMPlus_JITMinOpts%"=="" goto :Compatible1
+  ECHO SKIPPING EXECUTION BECAUSE ONE OR MORE OF (COMPlus_JitStress, COMPlus_JitStressRegs, COMPlus_JITMinOpts) IS SET
+  Exit /b 0
+:Compatible1
+      ]]></BatchCLRTestEnvironmentCompatibilityCheck>
+      <BatchCLRTestEnvironmentCompatibilityCheck Condition="'$(HeapVerifyIncompatible)' == 'true'"><![CDATA[
+$(BatchCLRTestEnvironmentCompatibilityCheck)
+IF NOT "%COMPlus_HeapVerify%"=="" (
+  ECHO SKIPPING EXECUTION BECAUSE COMPlus_HeapVerify IS SET
+  Exit /b 0
+)
+      ]]></BatchCLRTestEnvironmentCompatibilityCheck>
+      
       <BatchCLRTestExitCodePrep Condition="$(_CLRTestNeedsToRun)">
         <![CDATA[
-set CLRTestExpectedExitCode=$(CLRTestExitCode)
+if not defined CLRTestExpectedExitCode (set CLRTestExpectedExitCode=$(CLRTestExitCode))
 ECHO BEGIN EXECUTION
       ]]>
       </BatchCLRTestExitCodePrep>
 
       <BatchCLRTestArgPrep Condition=" '$(CLRTestExecutionArguments)'!='' "><![CDATA[
-set CLRTestExecutionArguments=$(CLRTestExecutionArguments) 
+if not defined CLRTestExecutionArguments (set CLRTestExecutionArguments=$(CLRTestExecutionArguments) )
       ]]></BatchCLRTestArgPrep>
     
       <!-- By default, be prepared to do a full check -->
@@ -150,6 +146,19 @@ IF NOT "%CLRTestExitCode%"=="%CLRTestExpectedExitCode%" (
   ECHO PASSED
   Exit /b 0
 )
+
+:TakeLock
+md %lockFolder%
+IF NOT "!ERRORLEVEL!"=="0" (
+timeout /t 10 /nobreak
+goto :TakeLock
+)
+Exit /b 2
+
+
+:ReleaseLock
+if exist %lockFolder% rd /s /q %lockFolder%
+Exit /b 0
       ]]></BatchCLRTestExitCodeCheck>
     </PropertyGroup>
   
@@ -193,17 +202,20 @@ IF NOT "%CLRTestExitCode%"=="%CLRTestExpectedExitCode%" (
         <Description>Set CORE_ROOT to the specified value before running the test.</Description>
       </BatchCLRTestExecutionScriptArgument>
     </ItemGroup>
-      
-    <ItemGroup>
-      <CLRTestBatchEnvironmentVariable Condition="'$(CrossGen)' == 'true' AND '$(_CLRTestNeedsProjectToRun)' == 'true'" Include="set complus_zaprequirelist=$([MSBuild]::MakeRelative($(OutputPath), $(_CLRTestToRunFileFullPath)))" />
-      <CLRTestBatchEnvironmentVariable Condition="'$(CrossGen)' == 'true' AND '$(_CLRTestNeedsProjectToRun)' == 'false'" Include="set complus_zaprequirelist=$(MSBuildProjectName)" />
-    </ItemGroup>
 
     <PropertyGroup> 
       <_CLRTestRunFile Condition="'$(CLRTestIsHosted)'=='true'">"%CORE_ROOT%\corerun.exe"</_CLRTestRunFile>
+      <BatchCLRTestLaunchCmds><![CDATA[
+IF NOT "%CLRCustomTestLauncher%"=="" (
+  set LAUNCHER=call %CLRCustomTestLauncher% %~dp0
+) ELSE (
+  set LAUNCHER=%_DebuggerFullPath% $(_CLRTestRunFile)
+)
+      ]]></BatchCLRTestLaunchCmds>
       <BatchCLRTestLaunchCmds Condition=" '$(IlasmRoundTrip)'=='true' "><![CDATA[
-ECHO $(_CLRTestRunFile) $(TargetAssemblyName) %CLRTestExecutionArguments% %Host_Args%
-$(_CLRTestRunFile) $(TargetAssemblyName) %CLRTestExecutionArguments% %Host_Args%
+$(BatchCLRTestLaunchCmds)
+ECHO %LAUNCHER% $(TargetAssemblyName) %CLRTestExecutionArguments% %Host_Args%
+%LAUNCHER% $(TargetAssemblyName) %CLRTestExecutionArguments% %Host_Args%
 
 IF NOT "!ERRORLEVEL!"=="%CLRTestExpectedExitCode%" (
   ECHO END EXECUTION OF IL{D}ASM BINARY - FAILED !ERRORLEVEL! vs %CLRTestExpectedExitCode%
@@ -211,10 +223,18 @@ IF NOT "!ERRORLEVEL!"=="%CLRTestExpectedExitCode%" (
   Exit /b 1
 )
       ]]></BatchCLRTestLaunchCmds>
-      <BatchCLRTestLaunchCmds><![CDATA[
+      <BatchCLRTestLaunchCmds Condition="'$(CLRTestKind)' == 'BuildAndRun'"><![CDATA[
 $(BatchCLRTestLaunchCmds)
-ECHO %_DebuggerFullPath% $(_CLRTestRunFile) $(InputAssemblyName) %CLRTestExecutionArguments% %Host_Args%
-%_DebuggerFullPath% $(_CLRTestRunFile) $(InputAssemblyName) %CLRTestExecutionArguments% %Host_Args%
+ECHO %LAUNCHER% $(InputAssemblyName) %CLRTestExecutionArguments%
+%LAUNCHER% $(InputAssemblyName) %CLRTestExecutionArguments%
+set CLRTestExitCode=!ERRORLEVEL!
+      ]]></BatchCLRTestLaunchCmds>
+
+      <BatchCLRTestLaunchCmds Condition="'$(CLRTestKind)' == 'RunOnly'"><![CDATA[
+$(BatchCLRTestLaunchCmds)
+ECHO  cmd /c $(InputAssemblyName)
+cmd /c $(InputAssemblyName)
+set CLRTestExpectedExitCode=0
 set CLRTestExitCode=!ERRORLEVEL!
       ]]></BatchCLRTestLaunchCmds>
     </PropertyGroup>
@@ -293,7 +313,9 @@ $(BatchCLRTestArgPrep)
   <![CDATA[
 @ECHO OFF
 setlocal ENABLEDELAYEDEXPANSION
+set "lockFolder=%~dp0\lock"
 pushd %~dp0
+
 $(BatchCLRTestArgPrep)
 $(BatchCLRTestExitCodePrep)
 
@@ -303,8 +325,9 @@ IF NOT "%__TestEnv%"=="" call %__TestEnv%
 REM Environment Variables
 $(BatchEnvironmentVariables)
 
-REM CrossGen Script (when /p:CrossGen=true)
-$(CrossgenBatchScript)
+$(BatchCLRTestEnvironmentCompatibilityCheck)
+
+$(JitDisasmBatchScript)
 
 REM IlasmRoundTrip Script
 $(IlasmRoundTripBatchScript)

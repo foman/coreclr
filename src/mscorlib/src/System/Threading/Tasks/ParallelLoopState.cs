@@ -26,7 +26,6 @@ namespace System.Threading.Tasks
     /// Enables iterations of <see cref="T:System.Threading.Tasks.Parallel"/> loops to interact with
     /// other iterations.
     /// </summary>
-    [HostProtection(Synchronization = true, ExternalThreading = true)]
     [DebuggerDisplay("ShouldExitCurrentIteration = {ShouldExitCurrentIteration}")]
     public class ParallelLoopState
     {
@@ -47,7 +46,7 @@ namespace System.Threading.Tasks
         { 
             get 
             { 
-                Contract.Assert(false);
+                Debug.Assert(false);
                 throw new NotSupportedException(
                     Environment.GetResourceString("ParallelState_NotSupportedException_UnsupportedMethod"));
             } 
@@ -104,7 +103,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                Contract.Assert(false);
+                Debug.Assert(false);
                 throw new NotSupportedException(
                     Environment.GetResourceString("ParallelState_NotSupportedException_UnsupportedMethod"));
             }
@@ -152,7 +151,7 @@ namespace System.Threading.Tasks
         // Internal/virtual support for Break().
         internal virtual void InternalBreak()
         {
-            Contract.Assert(false);
+            Debug.Assert(false);
             throw new NotSupportedException(
                     Environment.GetResourceString("ParallelState_NotSupportedException_UnsupportedMethod"));
         }

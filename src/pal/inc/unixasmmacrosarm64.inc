@@ -5,7 +5,7 @@
 .macro NESTED_ENTRY Name, Section, Handler
         LEAF_ENTRY \Name, \Section
         .ifnc \Handler, NoHandler
-        .cfi_personality 0, C_FUNC(\Handler) // 0 == DW_EH_PE_absptr
+        .cfi_personality 0x1b, C_FUNC(\Handler) // 0x1b == DW_EH_PE_pcrel | DW_EH_PE_sdata4
         .endif
 .endm
 
@@ -25,11 +25,15 @@ C_FUNC(\Name):
         .cfi_startproc
 .endm
 
+.macro LEAF_END Name, Section
+        .size \Name, .-\Name
+        .cfi_endproc
+.endm
+
 .macro LEAF_END_MARKED Name, Section
         .global C_FUNC(\Name\()_End)
 C_FUNC(\Name\()_End):
-        .size \Name, .-\Name
-        .cfi_endproc
+        LEAF_END \Name, \Section
 .endm
 
 .macro PREPARE_EXTERNAL_VAR Name, HelperReg

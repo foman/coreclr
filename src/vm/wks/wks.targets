@@ -107,6 +107,7 @@
     <CppCompile Include="$(VmSourcesDir)\gcenv.os.cpp" />
     <CppCompile Include="$(VmSourcesDir)\gchelpers.cpp" />
     <CppCompile Include="$(VmSourcesDir)\gchost.cpp" />
+    <CppCompile Include="$(VmSourcesDir)\gcheaputilities.cpp" />
     <CppCompile Include="$(VmSourcesDir)\genericdict.cpp" />
     <CppCompile Include="$(VmSourcesDir)\generics.cpp" />
     <CppCompile Include="$(VmSourcesDir)\genmeth.cpp" />
@@ -226,6 +227,7 @@
     <CppCompile Include="$(VmSourcesDir)\validator.cpp" Condition="'$(FeatureCoreclr)' != 'true'"/>
     <CppCompile Include="$(VmSourcesDir)\vars.cpp" />
     <CppCompile Include="$(VmSourcesDir)\verifier.cpp" />
+    <CppCompile Include="$(VmSourcesDir)\versionresilienthashcode.cpp" />
     <CppCompile Include="$(VmSourcesDir)\VirtualCallStub.cpp" />
     <CppCompile Include="$(VmSourcesDir)\WeakReferenceNative.cpp" />
     <CppCompile Include="$(VmSourcesDir)\Win32Threadpool.cpp" />
@@ -250,7 +252,6 @@
   <ItemGroup>
     <CppCompile Include="$(VmSourcesDir)\AssemblyNativeResource.cpp" />
     <CppCompile Include="$(VmSourcesDir)\coverage.cpp" />
-    <CppCompile Include="$(VmSourcesDir)\DbgGcInfoDecoder.cpp" />
     <CppCompile Include="$(VmSourcesDir)\dwreport.cpp" />
     <CppCompile Include="$(VmSourcesDir)\EnCEE.cpp" />
     <CppCompile Include="$(VmSourcesDir)\ExceptionHandling.cpp" />

@@ -30,11 +30,10 @@
     <DebugType>Full</DebugType>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="u_array_merge-ia64.il" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(JitPackagesConfigFileDirectory)minimal\project.json" />
-    <None Include="app.config" />
+    <Compile Condition="'$(BuildArch)' ==   'x64'" Include="u_array_merge-ia64.il" />
+    <Compile Condition="'$(BuildArch)' == 'arm64'" Include="u_array_merge-ia64.il" />
+    <Compile Condition="'$(BuildArch)' ==   'x86'" Include="u_array_merge-i386.il" />
+    <Compile Condition="'$(BuildArch)' ==   'arm'" Include="u_array_merge-i386.il" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />

@@ -37,7 +37,9 @@
     <ProjectFile Include="genman32\genman32.csproj" />
     <ProjectFile Include="genpubcfg\genpubcfg.csproj" Condition="'$(BuildArchitecture)' == 'i386'" />
     <ProjectFile Include="glee\glee.nativeproj" />
-    <ProjectFile Include="ibcmerge\ibcmerge_msbuild.csproj" />
+    <ProjectFile Include="ibcmerge\ibcmerge_msbuild.csproj">
+        <ProductGroups>FX;PK</ProductGroups>
+    </ProjectFile>
     <ProjectFile Include="isymmanagedwrapper\isymwrapper.csproj" Condition="'$(BuildArchitecture)' == 'ppc'" />
     <ProjectFile Include="isymwrapper\isymwrapper.nativeproj" />
     <ProjectFile Include="locstudiomanagedparser\managedparser.csproj" />
@@ -77,7 +79,9 @@
     </ProjectFile>
     <ProjectFile Include="urtui\dirs.proj"/>
     <ProjectFile Include="winmdexp\dirs.proj" />
+<!--
     <ProjectFile Include="winverify\dirs.proj" />
+-->
     <ProjectFile Include="wpf\wpf.proj" Condition="'$(BuildArchitecture)' == 'i386' or '$(BuildArchitecture)' == 'amd64'" />
     <ProjectFile Include="PdbTypeMatch\PdbTypeMatch.nativeproj" Condition="'$(BuildArchitecture)' == 'i386' and '$(_BuildType)' == 'ret'" >
         <ProductGroups>PK</ProductGroups>
@@ -91,7 +95,6 @@
 
   <!--The following projects will build during PHASE 1 of the CoreSys build-->
   <ItemGroup Condition="'$(BuildExePhase)' == '1' and '$(BuildProjectName)' == 'CoreSys'">
-    <ProjectFile Include="mdbg\dirs.proj" />
     <ProjectFile Include="ibcmerge\ibcmerge_msbuild.csproj" />
   </ItemGroup>
   

@@ -22,7 +22,6 @@ namespace System.Diagnostics {
    // programatically, by registry (specifics....) or environment
    // variables.
     [Serializable]
-    [HostProtection(Synchronization=true, ExternalThreading=true)]
     internal delegate void LogMessageEventHandler(LoggingLevels level, LogSwitch category, 
                                                     String message, 
                                                     StackTrace location);
@@ -140,7 +139,7 @@ namespace System.Diagnostics {
                 throw new ArgumentNullException ("LogSwitch");
     
             if (level < 0)
-                throw new ArgumentOutOfRangeException("level", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(level), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
     
             // Is logging for this level for this switch enabled?
@@ -240,10 +239,8 @@ namespace System.Diagnostics {
         
     
         // Native method to inform the EE about the creation of a new LogSwitch
-        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void AddLogSwitch(LogSwitch logSwitch);
-        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void ModifyLogSwitch (int iNewLevel, String strSwitchName, String strParentName);
     }

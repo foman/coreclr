@@ -139,7 +139,6 @@ BOOL MethodDesc::IsIntrospectionOnly()
 }
 
 /*********************************************************************/
-#ifndef FEATURE_CORECLR
 #ifndef DACCESS_COMPILE
 BOOL NDirectMethodDesc::HasDefaultDllImportSearchPathsAttribute()
 {
@@ -172,7 +171,6 @@ BOOL NDirectMethodDesc::HasDefaultDllImportSearchPathsAttribute()
     return (ndirect.m_wFlags  & kDefaultDllImportSearchPathsStatus) != 0;
 }
 #endif //!DACCESS_COMPILE
-#endif // !FEATURE_CORECLR
 
 //*******************************************************************************
 #ifndef DACCESS_COMPILE
@@ -1080,7 +1078,7 @@ BOOL MethodDesc::IsVerifiable()
 #endif // _VER_EE_VERIFICATION_ENABLED
     }
 
-    UnsafeJitFunction(this, pHeader, CORJIT_FLG_IMPORT_ONLY, 0);
+    UnsafeJitFunction(this, pHeader, CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_IMPORT_ONLY));
     _ASSERTE(IsVerified());
 
     return (IsVerified() && (m_wFlags & mdcVerifiable));
@@ -3111,13 +3109,11 @@ void MethodDesc::Save(DataImage *image)
         // Make sure that the marshaling required flag is computed
         pNMD->MarshalingRequired();
         
-#ifndef FEATURE_CORECLR
         if (!pNMD->IsQCall())
         {
             //Cache DefaultImportDllImportSearchPaths attribute.
             pNMD->HasDefaultDllImportSearchPathsAttribute();
         }
-#endif
 
         image->StoreStructure(pNMD->GetWriteableData(),
                                 sizeof(NDirectWriteableData),
@@ -3253,6 +3249,7 @@ bool MethodDesc::CanSkipDoPrestub (
         return false;
     }
 
+#ifdef FEATURE_CER
     // Can't hard bind to a method which contains one or more Constrained Execution Region roots (we need to force the prestub to
     // execute for such methods).
     if (ContainsPrePreparableCerRoot(this))
@@ -3260,6 +3257,7 @@ bool MethodDesc::CanSkipDoPrestub (
         *pReason = CORINFO_INDIRECT_CALL_CER;
         return false;
     }
+#endif // FEATURE_CER
 
     // Check whether our methoddesc needs restore
     if (NeedsRestore(GetAppDomain()->ToCompilationDomain()->GetTargetImage(), TRUE))
@@ -5393,18 +5391,17 @@ BOOL MethodDesc::HasNativeCallableAttribute()
     }
     CONTRACTL_END;
 
-// enable only for amd64 now, other platforms are not tested.
-#if defined(_TARGET_AMD64_) 
-
 #ifdef FEATURE_CORECLR
     HRESULT hr = GetMDImport()->GetCustomAttributeByName(GetMemberDef(),
         g_NativeCallableAttribute,
         NULL,
         NULL);
-    return (hr == S_OK);
+    if (hr == S_OK)
+    {
+        return TRUE;
+    }
 #endif //FEATURE_CORECLR
 
-#endif //_TARGET_AMD64_
     return FALSE;
 }
 

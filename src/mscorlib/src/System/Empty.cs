@@ -25,10 +25,9 @@ namespace System {
             return String.Empty;
         }
     
-        [System.Security.SecurityCritical]  // auto-generated
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info==null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
             UnitySerializationHolder.GetUnitySerializationInfo(info, UnitySerializationHolder.EmptyUnity, null, null);

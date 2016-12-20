@@ -16,7 +16,7 @@ namespace System {
     using System.Runtime.Serialization;
     using System.Runtime.CompilerServices;
     using System.Globalization;
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public class MissingFieldException : MissingMemberException, ISerializable {
         public MissingFieldException() 
@@ -39,7 +39,6 @@ namespace System {
     
         public override String Message
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (ClassName == null) {
                     return base.Message;

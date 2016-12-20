@@ -73,13 +73,12 @@ public:
 
     // Reserve virtual memory range.
     // Parameters:
-    //  address   - starting virtual address, it can be NULL to let the function choose the starting address
     //  size      - size of the virtual memory range
     //  alignment - requested memory alignment
     //  flags     - flags to control special settings like write watching
     // Return:
     //  Starting virtual address of the reserved range
-    static void* VirtualReserve(void *address, size_t size, size_t alignment, uint32_t flags);
+    static void* VirtualReserve(size_t size, size_t alignment, uint32_t flags);
 
     // Release virtual memory range previously reserved using VirtualReserve
     // Parameters:
@@ -181,7 +180,7 @@ public:
     // current platform. It is indended for logging purposes only.
     // Return:
     //  Numeric id of the current thread or 0 if the 
-    static uint32_t GetCurrentThreadIdForLogging();
+    static uint64_t GetCurrentThreadIdForLogging();
 
     // Get id of the current process
     // Return:
@@ -224,31 +223,35 @@ public:
     static bool GetCurrentProcessAffinityMask(uintptr_t *processMask, uintptr_t *systemMask);
 
     //
-    // Support for acting on memory limit imposed on this process, eg, running in a job object on Windows.
+    // Global memory info
     //
-    
-    // If the process's memory is restricted (ie, beyond what's available on the machine), return that limit.
+
+    // Return the size of the user-mode portion of the virtual address space of this process.
+    // Return:
+    //  non zero if it has succeeded, 0 if it has failed
+    static size_t GetVirtualMemoryLimit();
+
+    // Get the physical memory that this process can use.
     // Return:
     //  non zero if it has succeeded, 0 if it has failed
     // Remarks:
-    //  If a process runs with a restricted memory limit, and we are successful at getting 
-    //  that limit, it returns the limit. If there's no limit specified, or there's an error 
-    //  at getting that limit, it returns 0.
-    static uint64_t GetRestrictedPhysicalMemoryLimit();
+    //  If a process runs with a restricted memory limit, it returns the limit. If there's no limit 
+    //  specified, it returns amount of actual physical memory.
+    static uint64_t GetPhysicalMemoryLimit();
 
-    // Get the current physical memory this process is using.
-    // Return:
-    //  non zero if it has succeeded, 0 if it has failed
-    static size_t GetCurrentPhysicalMemory();
-    
+    // Get memory status
+    // Parameters:
+    //  memory_load - A number between 0 and 100 that specifies the approximate percentage of physical memory
+    //      that is in use (0 indicates no memory use and 100 indicates full memory use).
+    //  available_physical - The amount of physical memory currently available, in bytes.
+    //  available_page_file - The maximum amount of memory the current process can commit, in bytes.
+    // Remarks:
+    //  Any parameter can be null.
+    static void GetMemoryStatus(uint32_t* memory_load, uint64_t* available_physical, uint64_t* available_page_file);
+
     //
     // Misc
     //
-
-    // Get global memory status
-    // Parameters:
-    //  ms - pointer to the structure that will be filled in with the memory status
-    static void GetMemoryStatus(GCMemoryStatus* ms);
 
     // Flush write buffers of processors that are executing threads of the current process
     static void FlushProcessWriteBuffers();

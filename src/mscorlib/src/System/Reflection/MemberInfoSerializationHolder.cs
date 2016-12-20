@@ -11,7 +11,7 @@ using System.Globalization;
 using System.Diagnostics.Contracts;
 
 namespace System.Reflection 
-{   
+{
     [Serializable]
     internal class MemberInfoSerializationHolder : ISerializable, IObjectReference 
     {
@@ -31,7 +31,7 @@ namespace System.Reflection
             Type[] genericArguments)
         {
             if (info == null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
 
             String assemblyName = reflectedClass.Module.Assembly.FullName;
@@ -65,7 +65,7 @@ namespace System.Reflection
         internal MemberInfoSerializationHolder(SerializationInfo info, StreamingContext context) 
         {
             if (info == null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
 
             String assemblyName = info.GetString("AssemblyName");
@@ -86,7 +86,6 @@ namespace System.Reflection
         #endregion
 
         #region ISerializable
-        [System.Security.SecurityCritical]  // auto-generated
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context) 
         {
             throw new NotSupportedException(Environment.GetResourceString(ResId.NotSupported_Method));
@@ -94,7 +93,6 @@ namespace System.Reflection
         #endregion
     
         #region IObjectReference
-        [System.Security.SecurityCritical]  // auto-generated
         public virtual Object GetRealObject(StreamingContext context) 
         {
             if (m_memberName == null || m_reflectedType == null || m_memberType == 0)

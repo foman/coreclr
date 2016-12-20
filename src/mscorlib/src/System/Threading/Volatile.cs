@@ -27,6 +27,7 @@ namespace System.Threading
     public static class Volatile
     {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static bool Read(ref bool location)
         {
             // 
@@ -39,6 +40,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static sbyte Read(ref sbyte location)
         {
             // 
@@ -50,6 +52,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static byte Read(ref byte location)
         {
             // 
@@ -61,6 +64,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static short Read(ref short location)
         {
             // 
@@ -73,6 +77,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static ushort Read(ref ushort location)
         {
             // 
@@ -84,6 +89,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static int Read(ref int location)
         {
             // 
@@ -96,6 +102,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static uint Read(ref uint location)
         {
             // 
@@ -106,6 +113,32 @@ namespace System.Threading
             return value;
         }
 
+#if BIT64
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
+        public static long Read(ref long location)
+        {
+            // 
+            // The VM will replace this with a more efficient implementation.
+            //
+            var value = location;
+            Thread.MemoryBarrier();
+            return value;
+        }
+
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
+        public static ulong Read(ref ulong location)
+        {
+            // 
+            // The VM will replace this with a more efficient implementation.
+            //
+            var value = location;
+            Thread.MemoryBarrier();
+            return value;
+        }
+#else
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         public static long Read(ref long location)
         {
@@ -120,7 +153,6 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
-        [SecuritySafeCritical] // contains unsafe code
         public static ulong Read(ref ulong location)
         {
             unsafe
@@ -135,8 +167,10 @@ namespace System.Threading
                 }
             }
         }
+#endif
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static IntPtr Read(ref IntPtr location)
         {
             // 
@@ -149,6 +183,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static UIntPtr Read(ref UIntPtr location)
         {
             // 
@@ -160,6 +195,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static float Read(ref float location)
         {
             // 
@@ -171,6 +207,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static double Read(ref double location)
         {
             //
@@ -183,7 +220,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
-        [SecuritySafeCritical] //the intrinsic implementation of this method contains unverifiable code
+        [System.Runtime.Versioning.NonVersionable]
         public static T Read<T>(ref T location) where T : class
         {
             // 
@@ -198,6 +235,7 @@ namespace System.Threading
 
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref bool location, bool value)
         {
             // 
@@ -209,6 +247,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref sbyte location, sbyte value)
         {
             // 
@@ -219,6 +258,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref byte location, byte value)
         {
             // 
@@ -229,6 +269,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref short location, short value)
         {
             // 
@@ -240,6 +281,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref ushort location, ushort value)
         {
             // 
@@ -250,6 +292,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref int location, int value)
         {
             // 
@@ -261,6 +304,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref uint location, uint value)
         {
             // 
@@ -270,6 +314,30 @@ namespace System.Threading
             location = value;
         }
 
+#if BIT64
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
+        public static void Write(ref long location, long value)
+        {
+            // 
+            // The VM will replace this with a more efficient implementation.
+            //
+            Thread.MemoryBarrier();
+            location = value;
+        }
+
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
+        public static void Write(ref ulong location, ulong value)
+        {
+            // 
+            // The VM will replace this with a more efficient implementation.
+            //
+            Thread.MemoryBarrier();
+            location = value;
+        }
+#else
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         public static void Write(ref long location, long value)
         {
@@ -284,7 +352,6 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
-        [SecuritySafeCritical] // contains unsafe code
         public static void Write(ref ulong location, ulong value)
         {
             //
@@ -305,8 +372,10 @@ namespace System.Threading
                 }
             }
         }
+#endif
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref IntPtr location, IntPtr value)
         {
             // 
@@ -318,6 +387,7 @@ namespace System.Threading
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [CLSCompliant(false)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref UIntPtr location, UIntPtr value)
         {
             // 
@@ -328,6 +398,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref float location, float value)
         {
             // 
@@ -338,6 +409,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write(ref double location, double value)
         {
             //
@@ -350,7 +422,7 @@ namespace System.Threading
         }
 
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
-        [SecuritySafeCritical] //the intrinsic implementation of this method contains unverifiable code
+        [System.Runtime.Versioning.NonVersionable]
         public static void Write<T>(ref T location, T value) where T : class
         {
             // 

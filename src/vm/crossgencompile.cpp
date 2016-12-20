@@ -78,18 +78,23 @@ BOOL Debug_IsLockedViaThreadSuspension()
 #endif // _DEBUG
 
 #if defined(FEATURE_MERGE_JIT_AND_ENGINE) && defined(FEATURE_IMPLICIT_TLS)
-Compiler* theTlsCompiler;
+void* theJitTls;
 
-Compiler* GetTlsCompiler()
+extern "C"
+{
+
+void* GetJitTls()
 {
     LIMITED_METHOD_CONTRACT
 
-    return theTlsCompiler;
+    return theJitTls;
 }
-void SetTlsCompiler(Compiler* c)
+void SetJitTls(void* v)
 {
     LIMITED_METHOD_CONTRACT
-    theTlsCompiler = c;
+    theJitTls = v;
+}
+
 }
 #endif
 
@@ -125,7 +130,7 @@ BOOL __SwitchToThread(DWORD, DWORD)
 // Globals and misc other
 //
 
-GPTR_IMPL(GCHeap,g_pGCHeap);
+GPTR_IMPL(IGCHeap,g_pGCHeap);
 
 BOOL g_fEEOtherStartup=FALSE;
 BOOL g_fEEComActivatedStartup=FALSE;
@@ -133,7 +138,7 @@ BOOL g_fEEComActivatedStartup=FALSE;
 GVAL_IMPL_INIT(DWORD, g_fHostConfig, 0);
 
 #ifdef FEATURE_SVR_GC
-SVAL_IMPL_INIT(uint32_t,GCHeap,gcHeapType,GCHeap::GC_HEAP_WKS);
+SVAL_IMPL_INIT(uint32_t,IGCHeap,gcHeapType,IGCHeap::GC_HEAP_WKS);
 #endif
 
 void UpdateGCSettingFromHost()
@@ -300,7 +305,7 @@ void CRemotingServices::DestroyThunk(MethodDesc* pMD)
 }
 #endif
 
-CORINFO_GENERIC_HANDLE JIT_GenericHandleWorker(MethodDesc *  pMD, MethodTable * pMT, LPVOID signature)
+CORINFO_GENERIC_HANDLE JIT_GenericHandleWorker(MethodDesc *  pMD, MethodTable * pMT, LPVOID signature, DWORD dictionaryIndexAndSlot, Module* pModule)
 {
     UNREACHABLE();
 }
@@ -325,6 +330,11 @@ GCFrame::GCFrame(OBJECTREF *pObjRefs, UINT numObjRefs, BOOL maybeInterior)
 }
 
 void GCFrame::GcScanRoots(promote_func *fn, ScanContext* sc)
+{
+    UNREACHABLE();
+}
+
+void HijackFrame::GcScanRoots(promote_func *fn, ScanContext* sc)
 {
     UNREACHABLE();
 }

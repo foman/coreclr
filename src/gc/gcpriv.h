@@ -24,7 +24,9 @@
 
 inline void FATAL_GC_ERROR()
 {
+#ifndef DACCESS_COMPILE
     GCToOSInterface::DebugBreak();
+#endif // DACCESS_COMPILE
     _ASSERTE(!"Fatal Error in GC.");
     EEPOLICY_HANDLE_FATAL_ERROR(COR_E_EXECUTIONENGINE);
 }
@@ -106,7 +108,7 @@ inline void FATAL_GC_ERROR()
 #define MARK_ARRAY      //Mark bit in an array
 #endif //BACKGROUND_GC
 
-#if defined(BACKGROUND_GC) || defined (CARD_BUNDLE)
+#if defined(BACKGROUND_GC) || defined (CARD_BUNDLE) || defined(FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP)
 #define WRITE_WATCH     //Write Watch feature
 #endif //BACKGROUND_GC || CARD_BUNDLE
 
@@ -127,8 +129,6 @@ inline void FATAL_GC_ERROR()
 
 //#define TRACE_GC          //debug trace gc operation
 //#define SIMPLE_DPRINTF
-
-//#define CATCH_GC          //catches exception during GC
 
 //#define TIME_GC           //time allocation and garbage collection
 //#define TIME_WRITE_WATCH  //time GetWriteWatch and ResetWriteWatch calls
@@ -155,8 +155,6 @@ inline void FATAL_GC_ERROR()
 #define BEGIN_TIMING_CYCLES(x)
 #define END_TIMING_CYCLES(x)
 #endif //SYNCHRONIZATION_STATS || STAGE_STATS
-
-#define NO_CATCH_HANDLERS  //to debug gc1, remove the catch handlers
 
 /* End of optional features */
 
@@ -604,12 +602,12 @@ public:
 
 // GC specific statistics, tracking counts and timings for GCs occuring in the system.
 // This writes the statistics to a file every 60 seconds, if a file is specified in
-// COMPLUS_GcMixLog
+// COMPlus_GcMixLog
 
 struct GCStatistics
     : public StatisticsBase
 {
-    // initialized to the contents of COMPLUS_GcMixLog, or NULL, if not present
+    // initialized to the contents of COMPlus_GcMixLog, or NULL, if not present
     static TCHAR* logFileName;
     static FILE*  logFile;
 
@@ -1077,9 +1075,6 @@ enum interesting_data_point
 };
 
 //class definition of the internal class
-#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
-extern void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForEtw, BOOL fShouldWalkHeapObjectsForEtw);
-#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 class gc_heap
 {
     friend struct ::_DacGlobals;
@@ -1229,7 +1224,7 @@ public:
     static 
     gc_heap* balance_heaps_loh (alloc_context* acontext, size_t size);
     static
-    void __stdcall gc_thread_stub (void* arg);
+    void gc_thread_stub (void* arg);
 #endif //MULTIPLE_HEAPS
 
     CObjectHeader* try_fast_alloc (size_t jsize);
@@ -1287,34 +1282,47 @@ public:
 
 protected:
 
-    PER_HEAP
+    PER_HEAP_ISOLATED
     void walk_heap (walk_fn fn, void* context, int gen_number, BOOL walk_large_object_heap_p);
+
+    PER_HEAP
+    void walk_heap_per_heap (walk_fn fn, void* context, int gen_number, BOOL walk_large_object_heap_p);
 
     struct walk_relocate_args
     {
         uint8_t* last_plug;
         BOOL is_shortened;
         mark* pinned_plug_entry;
+        size_t profiling_context;
+        record_surv_fn fn;
     };
 
     PER_HEAP
+    void walk_survivors (record_surv_fn fn, size_t context, walk_surv_type type);
+
+    PER_HEAP
     void walk_plug (uint8_t* plug, size_t size, BOOL check_last_object_p,
-                    walk_relocate_args* args, size_t profiling_context);
+                    walk_relocate_args* args);
 
     PER_HEAP
-    void walk_relocation (int condemned_gen_number,
-                          uint8_t* first_condemned_address, size_t profiling_context);
+    void walk_relocation (size_t profiling_context, record_surv_fn fn);
 
     PER_HEAP
-    void walk_relocation_in_brick (uint8_t* tree, walk_relocate_args* args, size_t profiling_context);
+    void walk_relocation_in_brick (uint8_t* tree, walk_relocate_args* args);
+
+    PER_HEAP
+    void walk_finalize_queue (fq_walk_fn fn);
 
 #if defined(BACKGROUND_GC) && defined(FEATURE_EVENT_TRACE)
     PER_HEAP
-    void walk_relocation_for_bgc(size_t profiling_context);
-
-    PER_HEAP
-    void make_free_lists_for_profiler_for_bgc();
+    void walk_survivors_for_bgc (size_t profiling_context, record_surv_fn fn);
 #endif // defined(BACKGROUND_GC) && defined(FEATURE_EVENT_TRACE)
+
+    // used in blocking GCs after plan phase so this walks the plugs.
+    PER_HEAP
+    void walk_survivors_relocation (size_t profiling_context, record_surv_fn fn);
+    PER_HEAP
+    void walk_survivors_for_loh (size_t profiling_context, record_surv_fn fn);
 
     PER_HEAP
     int generation_to_condemn (int n, 
@@ -1648,6 +1656,12 @@ protected:
     void rearrange_large_heap_segments();
     PER_HEAP
     void rearrange_heap_segments(BOOL compacting);
+
+    PER_HEAP_ISOLATED
+    void reset_write_watch_for_gc_heap(void* base_address, size_t region_size);
+    PER_HEAP_ISOLATED
+    void get_write_watch_for_gc_heap(bool reset, void *base_address, size_t region_size, void** dirty_pages, uintptr_t* dirty_page_count_ref, bool is_runtime_suspended);
+
     PER_HEAP
     void switch_one_quantum();
     PER_HEAP
@@ -1657,7 +1671,7 @@ protected:
     PER_HEAP
     void reset_write_watch (BOOL concurrent_p);
     PER_HEAP
-    void adjust_ephemeral_limits ();
+    void adjust_ephemeral_limits (bool is_runtime_suspended);
     PER_HEAP
     void make_generation (generation& gen, heap_segment* seg,
                           uint8_t* start, uint8_t* pointer);
@@ -2066,6 +2080,12 @@ protected:
 
     PER_HEAP
     void pin_object (uint8_t* o, uint8_t** ppObject, uint8_t* low, uint8_t* high);
+
+#if defined(ENABLE_PERF_COUNTERS) || defined(FEATURE_EVENT_TRACE)
+    PER_HEAP_ISOLATED
+    size_t get_total_pinned_objects();
+#endif //ENABLE_PERF_COUNTERS || FEATURE_EVENT_TRACE
+
     PER_HEAP
     void reset_mark_stack ();
     PER_HEAP
@@ -2140,10 +2160,8 @@ protected:
     PER_HEAP
     void relocate_in_loh_compact();
 
-#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
     PER_HEAP
-    void walk_relocation_loh (size_t profiling_context);
-#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+    void walk_relocation_for_loh (size_t profiling_context, record_surv_fn fn);
 
     PER_HEAP
     BOOL loh_enque_pinned_plug (uint8_t* plug, size_t len);
@@ -2539,14 +2557,8 @@ protected:
     PER_HEAP
     void descr_generations (BOOL begin_gc_p);
 
-#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
     PER_HEAP_ISOLATED
     void descr_generations_to_profiler (gen_walk_fn fn, void *context);
-    PER_HEAP
-    void record_survived_for_profiler(int condemned_gen_number, uint8_t * first_condemned_address);
-    PER_HEAP
-    void notify_profiler_of_surviving_large_objects ();
-#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 
     /*------------ Multiple non isolated heaps ----------------*/
 #ifdef MULTIPLE_HEAPS
@@ -2646,6 +2658,7 @@ protected:
     PER_HEAP_ISOLATED
     BOOL commit_mark_array_new_seg (gc_heap* hp, 
                                     heap_segment* seg,
+                                    uint32_t* new_card_table = 0,
                                     uint8_t* new_lowest_address = 0);
 
     PER_HEAP_ISOLATED
@@ -2728,19 +2741,6 @@ protected:
     void do_background_gc();
     static
     uint32_t __stdcall bgc_thread_stub (void* arg);
-
-#ifdef FEATURE_REDHAWK
-    // Helper used to wrap the start routine of background GC threads so we can do things like initialize the
-    // Redhawk thread state which requires running in the new thread's context.
-    static uint32_t WINAPI rh_bgc_thread_stub(void * pContext);
-
-    // Context passed to the above.
-    struct rh_bgc_thread_ctx
-    {
-        PTHREAD_START_ROUTINE   m_pRealStartRoutine;
-        gc_heap *               m_pRealContext;
-    };
-#endif //FEATURE_REDHAWK
 
 #endif //BACKGROUND_GC
  
@@ -2892,6 +2892,9 @@ public:
 
 #ifdef MULTIPLE_HEAPS
     PER_HEAP_ISOLATED
+    bool gc_thread_no_affinitize_p;
+
+    PER_HEAP_ISOLATED
     CLREvent gc_start_event;
 
     PER_HEAP_ISOLATED
@@ -2952,9 +2955,6 @@ public:
     uint64_t entry_available_physical_mem;
 
     PER_HEAP_ISOLATED
-    bool restricted_physical_memory_p;
-
-    PER_HEAP_ISOLATED
     size_t last_gc_index;
 
     PER_HEAP_ISOLATED
@@ -2982,7 +2982,7 @@ protected:
     PER_HEAP
     VOLATILE(int) alloc_context_count;
 #else //MULTIPLE_HEAPS
-#define vm_heap ((GCHeap*) g_pGCHeap)
+#define vm_heap ((GCHeap*) g_theGCHeap)
 #define heap_number (0)
 #endif //MULTIPLE_HEAPS
 
@@ -3015,10 +3015,15 @@ protected:
     mark*       mark_stack_array;
 
     PER_HEAP
-    BOOL       verify_pinned_queue_p;
+    BOOL        verify_pinned_queue_p;
 
     PER_HEAP
-    uint8_t*       oldest_pinned_plug;
+    uint8_t*    oldest_pinned_plug;
+
+#if defined(ENABLE_PERF_COUNTERS) || defined(FEATURE_EVENT_TRACE)
+    PER_HEAP
+    size_t      num_pinned_objects;
+#endif //ENABLE_PERF_COUNTERS || FEATURE_EVENT_TRACE
 
 #ifdef FEATURE_LOH_COMPACTION
     PER_HEAP
@@ -3102,9 +3107,6 @@ protected:
 
     PER_HEAP_ISOLATED
     CLREvent background_gc_done_event;
-
-    PER_HEAP
-    CLREvent background_gc_create_event;
 
     PER_HEAP_ISOLATED
     CLREvent ee_proceed_event;
@@ -3765,9 +3767,7 @@ public:
     Object* GetNextFinalizableObject (BOOL only_non_critical=FALSE);
     BOOL ScanForFinalization (promote_func* fn, int gen,BOOL mark_only_p, gc_heap* hp);
     void RelocateFinalizationData (int gen, gc_heap* hp);
-#ifdef GC_PROFILING
-    void WalkFReachableObjects (gc_heap* hp);
-#endif //GC_PROFILING
+    void WalkFReachableObjects (fq_walk_fn fn);
     void GcScanRoots (promote_func* fn, int hn, ScanContext *pSC);
     void UpdatePromotedGenerations (int gen, BOOL gen_0_empty_p);
     size_t GetPromotedCount();
@@ -4075,8 +4075,6 @@ size_t generation_unusable_fragmentation (generation* inst)
 }
 
 #define plug_skew           sizeof(ObjHeader)
-#define min_obj_size        (sizeof(uint8_t*)+plug_skew+sizeof(size_t))//syncblock + vtable+ first field
-//Note that this encodes the fact that plug_skew is a multiple of uint8_t*.
 // We always use USE_PADDING_TAIL when fitting so items on the free list should be
 // twice the min_obj_size.
 #define min_free_list       (2*min_obj_size)
@@ -4320,9 +4318,6 @@ dynamic_data* gc_heap::dynamic_data_of (int gen_number)
 {
     return &dynamic_data_table [ gen_number ];
 }
-
-extern "C" uint8_t* g_ephemeral_low;
-extern "C" uint8_t* g_ephemeral_high;
 
 #define card_word_width ((size_t)32)
 

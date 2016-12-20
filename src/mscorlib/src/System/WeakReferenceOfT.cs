@@ -20,7 +20,8 @@ namespace System
 
     [Serializable]
     // This class is sealed to mitigate security issues caused by Object::MemberwiseClone.
-    public sealed class WeakReference<T> : ISerializable where T : class
+    public sealed class WeakReference<T> : ISerializable 
+        where T : class
     {
         // If you fix bugs here, please fix them in WeakReference at the same time.
 
@@ -45,7 +46,7 @@ namespace System
         internal WeakReference(SerializationInfo info, StreamingContext context)
         {
             if (info == null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
 
@@ -80,10 +81,8 @@ namespace System
         private extern T Target
         {
             [MethodImplAttribute(MethodImplOptions.InternalCall)]
-            [SecuritySafeCritical]
             get;
             [MethodImplAttribute(MethodImplOptions.InternalCall)]
-            [SecuritySafeCritical]
             set;
         }
 
@@ -94,14 +93,12 @@ namespace System
         // This is needed for subclasses deriving from WeakReference<T>, however.
         // Additionally, there may be some cases during shutdown when we run this finalizer.
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        [SecuritySafeCritical]
         extern ~WeakReference();
 
-        [SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
 
@@ -110,11 +107,9 @@ namespace System
         }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        [SecuritySafeCritical]
         private extern void Create(T target, bool trackResurrection);
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        [SecuritySafeCritical]
         private extern bool IsTrackResurrection();
     }
 }

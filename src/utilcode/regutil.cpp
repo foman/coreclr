@@ -1355,7 +1355,7 @@ void REGUTIL::InitOptionalConfigCache()
     LONG l = ERROR_SUCCESS; // general Win32 API error return code
     HKEY hkey = NULL;
 
-    // No caching if the environment variable COMPLUS_DisableConfigCache is set
+    // No caching if the environment variable COMPlus_DisableConfigCache is set
     //
     if (CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_DisableConfigCache) != 0)
         goto failure;
@@ -1439,8 +1439,7 @@ void REGUTIL::InitOptionalConfigCache()
     s_fUseRegCache = TRUE;
 
     // Now create a cache of environment variables
-    WCHAR * wszStrings = WszGetEnvironmentStrings();
-    if (wszStrings)
+    if (WCHAR * wszStrings = WszGetEnvironmentStrings())
     {
         // GetEnvironmentStrings returns pointer to a null terminated block containing
         // null terminated strings

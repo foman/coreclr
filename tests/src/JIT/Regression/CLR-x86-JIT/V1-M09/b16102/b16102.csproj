@@ -32,13 +32,10 @@
     <NoStandardLib>True</NoStandardLib>
     <Noconfig>True</Noconfig>
     <DefineConstants>$(DefineConstants);CORECLR</DefineConstants>
+    <CLRTestExitCode>0</CLRTestExitCode>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="b16102.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(JitPackagesConfigFileDirectory)minimal\project.json" />
-    <None Include="app.config" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />

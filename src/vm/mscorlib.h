@@ -267,9 +267,7 @@ DEFINE_FIELD_U(_PublicKeyToken,            AssemblyNameBaseObject, m_pPublicKeyT
 DEFINE_FIELD_U(_CultureInfo,               AssemblyNameBaseObject, m_pCultureInfo)
 DEFINE_FIELD_U(_CodeBase,                  AssemblyNameBaseObject, m_pCodeBase)
 DEFINE_FIELD_U(_Version,                   AssemblyNameBaseObject, m_pVersion)
-#ifdef FEATURE_SERIALIZATION
 DEFINE_FIELD_U(m_siInfo,                   AssemblyNameBaseObject, m_siInfo)
-#endif
 DEFINE_FIELD_U(_HashForControl,            AssemblyNameBaseObject, m_HashForControl)
 DEFINE_FIELD_U(_HashAlgorithm,             AssemblyNameBaseObject, m_HashAlgorithm)
 DEFINE_FIELD_U(_HashAlgorithmForControl, AssemblyNameBaseObject, m_HashAlgorithmForControl)
@@ -464,19 +462,20 @@ DEFINE_METHOD(CONTEXT,              CALLBACK,               DoCallBackFromEE,   
 DEFINE_METHOD(CONTEXT,              RESERVE_SLOT,           ReserveSlot,                IM_RetInt)
 #endif
 
+#ifdef FEATURE_REMOTING
 DEFINE_CLASS(CONTEXT_BOUND_OBJECT,  System,                 ContextBoundObject)
+#endif
 
-
-#if defined(FEATURE_CRYPTO) || defined(FEATURE_LEGACYNETCFCRYPTO)
+#ifdef FEATURE_CRYPTO
 DEFINE_CLASS(CSP_PARAMETERS,        Cryptography,           CspParameters)
 
 DEFINE_FIELD(CSP_PARAMETERS,        PROVIDER_TYPE,          ProviderType)
 DEFINE_FIELD(CSP_PARAMETERS,        PROVIDER_NAME,          ProviderName)
 DEFINE_FIELD(CSP_PARAMETERS,        KEY_CONTAINER_NAME,     KeyContainerName)
 DEFINE_FIELD(CSP_PARAMETERS,        FLAGS,                  m_flags)
-#endif //FEATURE_CRYPTO || FEATURE_LEGACYNETCFCRYPTO
+#endif //FEATURE_CRYPTO
 
-#if defined(FEATURE_X509) || defined(FEATURE_CRYPTO) || defined(FEATURE_LEGACYNETCFCRYPTO)
+#if defined(FEATURE_X509) || defined(FEATURE_CRYPTO)
 DEFINE_CLASS(CRYPTO_EXCEPTION,      Cryptography,           CryptographicException)
 DEFINE_METHOD(CRYPTO_EXCEPTION,     THROW,                  ThrowCryptographicException, SM_Int_RetVoid)
 #endif // FEATURE_X509 || FEATURE_CRYPTO
@@ -556,18 +555,14 @@ DEFINE_FIELD_U(iFirstDayOfWeek,       CultureDataBaseObject,  iFirstDayOfWeek)
 DEFINE_FIELD_U(iFirstWeekOfYear,      CultureDataBaseObject,  iFirstWeekOfYear)
 DEFINE_FIELD_U(waCalendars,           CultureDataBaseObject,  waCalendars)
 DEFINE_FIELD_U(calendars,             CultureDataBaseObject,  calendars)
-#ifndef FEATURE_CORECLR
 DEFINE_FIELD_U(iReadingLayout,        CultureDataBaseObject,  iReadingLayout)
-#endif
 DEFINE_FIELD_U(sTextInfo,             CultureDataBaseObject,  sTextInfo)
 DEFINE_FIELD_U(sCompareInfo,          CultureDataBaseObject,  sCompareInfo)
 DEFINE_FIELD_U(sScripts,              CultureDataBaseObject,  sScripts)
 DEFINE_FIELD_U(bUseOverrides,         CultureDataBaseObject,  bUseOverrides)
 DEFINE_FIELD_U(bNeutral,              CultureDataBaseObject,  bNeutral)
-#ifndef FEATURE_CORECLR
 DEFINE_FIELD_U(bWin32Installed,       CultureDataBaseObject,  bWin32Installed)
 DEFINE_FIELD_U(bFramework,            CultureDataBaseObject,  bFramework)
-#endif 
 #endif
 #ifndef FEATURE_COREFX_GLOBALIZATION
 DEFINE_CLASS_U(Globalization,          CalendarData,           CalendarDataBaseObject)
@@ -598,9 +593,7 @@ DEFINE_FIELD_U(textInfo,           CultureInfoBaseObject,  textInfo)
 DEFINE_FIELD_U(numInfo,            CultureInfoBaseObject,  numInfo)
 DEFINE_FIELD_U(dateTimeInfo,       CultureInfoBaseObject,  dateTimeInfo)
 DEFINE_FIELD_U(calendar,           CultureInfoBaseObject,  calendar)
-#ifndef FEATURE_CORECLR
 DEFINE_FIELD_U(m_consoleFallbackCulture, CultureInfoBaseObject, m_consoleFallbackCulture)
-#endif // FEATURE_CORECLR
 DEFINE_FIELD_U(m_name,             CultureInfoBaseObject,  m_name)
 DEFINE_FIELD_U(m_nonSortName,      CultureInfoBaseObject,  m_nonSortName)
 DEFINE_FIELD_U(m_sortName,         CultureInfoBaseObject,  m_sortName)
@@ -778,6 +771,7 @@ DEFINE_CLASS(I_RT_FIELD_INFO,       System,                 IRuntimeFieldInfo)
 
 DEFINE_CLASS(FIELD_INFO,            Reflection,             FieldInfo)
 
+#ifndef FEATURE_CORECLR
 DEFINE_CLASS_U(IO,               FileStreamAsyncResult, AsyncResultBase)
 DEFINE_FIELD_U(_userCallback,          AsyncResultBase,    _userCallback)
 DEFINE_FIELD_U(_userStateObject,       AsyncResultBase,    _userStateObject)
@@ -792,6 +786,7 @@ DEFINE_FIELD_U(_isWrite,               AsyncResultBase,    _isWrite)
 DEFINE_FIELD_U(_isComplete,            AsyncResultBase,    _isComplete)
 DEFINE_FIELD_U(_completedSynchronously, AsyncResultBase, _completedSynchronously)
 DEFINE_CLASS(FILESTREAM_ASYNCRESULT, IO,               FileStreamAsyncResult)
+#endif // !FEATURE_CORECLR
 
 DEFINE_CLASS_U(Security,           FrameSecurityDescriptor, FrameSecurityDescriptorBaseObject)
 DEFINE_FIELD_U(m_assertions,       FrameSecurityDescriptorBaseObject,  m_assertions)
@@ -865,13 +860,11 @@ DEFINE_FIELD(IDENTITY,              LEASE,                  _lease)
 DEFINE_FIELD(IDENTITY,              OBJURI,                 _ObjURI)
 #endif
 
-#ifdef FEATURE_SERIALIZATION
 DEFINE_CLASS(ISERIALIZABLE,         Serialization,          ISerializable)
 DEFINE_CLASS(IOBJECTREFERENCE,      Serialization,          IObjectReference)
 DEFINE_CLASS(IDESERIALIZATIONCB,    Serialization,          IDeserializationCallback)
 DEFINE_CLASS(STREAMING_CONTEXT,     Serialization,          StreamingContext)
 DEFINE_CLASS(SERIALIZATION_INFO,    Serialization,          SerializationInfo)
-#endif
 
 #ifdef FEATURE_REMOTING
 DEFINE_CLASS(OBJECTCLONEHELPER,     Serialization,          ObjectCloneHelper)
@@ -1059,6 +1052,12 @@ DEFINE_FIELD(NULL,                  VALUE,          Value)
 
 DEFINE_CLASS(NULLABLE,              System,                 Nullable`1)
 
+#ifdef FEATURE_SPAN_OF_T
+DEFINE_CLASS(BYREFERENCE,           System,                 ByReference`1)
+DEFINE_CLASS(SPAN,                  System,                 Span`1)
+DEFINE_CLASS(READONLY_SPAN,         System,                 ReadOnlySpan`1)
+#endif
+
 // Keep this in sync with System.Globalization.NumberFormatInfo
 DEFINE_CLASS_U(Globalization,       NumberFormatInfo,   NumberFormatInfo)
 DEFINE_FIELD_U(numberGroupSizes,       NumberFormatInfo,   cNumberGroup)
@@ -1093,18 +1092,16 @@ DEFINE_FIELD_U(numberNegativePattern,  NumberFormatInfo,   cNegativeNumberFormat
 DEFINE_FIELD_U(percentPositivePattern, NumberFormatInfo,   cPositivePercentFormat)
 DEFINE_FIELD_U(percentNegativePattern, NumberFormatInfo,   cNegativePercentFormat)
 DEFINE_FIELD_U(percentDecimalDigits,   NumberFormatInfo,   cPercentDecimals)
-#ifndef FEATURE_CORECLR
 DEFINE_FIELD_U(digitSubstitution,      NumberFormatInfo,   iDigitSubstitution)
-#endif // !FEATURE_CORECLR
 DEFINE_FIELD_U(isReadOnly,             NumberFormatInfo,   bIsReadOnly)
 #ifndef FEATURE_COREFX_GLOBALIZATION
 DEFINE_FIELD_U(m_useUserOverride,      NumberFormatInfo,   bUseUserOverride)
 #endif
 DEFINE_FIELD_U(m_isInvariant,          NumberFormatInfo,   bIsInvariant)
-#ifndef FEATURE_CORECLR
+#ifndef FEATURE_COREFX_GLOBALIZATION
 DEFINE_FIELD_U(validForParseAsNumber,  NumberFormatInfo,   bvalidForParseAsNumber)
 DEFINE_FIELD_U(validForParseAsCurrency,NumberFormatInfo,   bvalidForParseAsCurrency)
-#endif // !FEATURE_CORECLR
+#endif
 
 // Defined as element type alias
 // DEFINE_CLASS(OBJECT,                System,                 Object)
@@ -1346,6 +1343,20 @@ DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST,       UnsafeEnumCast, NoSi
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST_LONG,  UnsafeEnumCastLong, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST_TO_STACKPTR,UnsafeCastToStackPointer, NoSig)
 #endif // _DEBUG
+#ifdef FEATURE_SPAN_OF_T
+DEFINE_METHOD(JIT_HELPERS,          BYREF_LESSTHAN,         ByRefLessThan, NoSig)
+DEFINE_METHOD(JIT_HELPERS,          GET_ARRAY_DATA,         GetArrayData, NoSig)
+DEFINE_METHOD(JIT_HELPERS,          CONTAINSREFERENCES,     ContainsReferences, NoSig)
+#endif
+
+#ifdef FEATURE_SPAN_OF_T
+DEFINE_CLASS(UNSAFE,                CompilerServices,       Unsafe)
+DEFINE_METHOD(UNSAFE,               AS_POINTER,             AsPointer, NoSig)
+DEFINE_METHOD(UNSAFE,               SIZEOF,                 SizeOf, NoSig)
+DEFINE_METHOD(UNSAFE,               BYREF_AS,               As, NoSig)
+DEFINE_METHOD(UNSAFE,               BYREF_ADD,              Add, NoSig)
+DEFINE_METHOD(UNSAFE,               BYREF_ARE_SAME,         AreSame, NoSig)
+#endif
 
 DEFINE_CLASS(INTERLOCKED,           Threading,              Interlocked)
 DEFINE_METHOD(INTERLOCKED,          COMPARE_EXCHANGE_T,     CompareExchange, GM_RefT_T_T_RetT)
@@ -1353,6 +1364,11 @@ DEFINE_METHOD(INTERLOCKED,          COMPARE_EXCHANGE_OBJECT,CompareExchange, SM_
 
 DEFINE_CLASS(PINNING_HELPER,        CompilerServices,       PinningHelper)
 DEFINE_FIELD(PINNING_HELPER,        M_DATA,                 m_data)
+
+#ifdef FEATURE_SPAN_OF_T
+DEFINE_CLASS(ARRAY_PINNING_HELPER,  CompilerServices,       ArrayPinningHelper)
+DEFINE_FIELD(ARRAY_PINNING_HELPER,  M_ARRAY_DATA,           m_arrayData)
+#endif
 
 DEFINE_CLASS(RUNTIME_WRAPPED_EXCEPTION, CompilerServices,   RuntimeWrappedException)
 DEFINE_METHOD(RUNTIME_WRAPPED_EXCEPTION, OBJ_CTOR,          .ctor,                      IM_Obj_RetVoid)
@@ -1378,9 +1394,7 @@ DEFINE_CLASS(SAFE_PEFILE_HANDLE,    SafeHandles,            SafePEFileHandle)
 DEFINE_CLASS(SAFE_TOKENHANDLE, SafeHandles, SafeAccessTokenHandle)
 #endif
 
-#ifndef FEATURE_CORECLR
 DEFINE_CLASS(SAFE_TYPENAMEPARSER_HANDLE,    System,         SafeTypeNameParserHandle)
-#endif //!FEATURE_CORECLR
 
 #ifdef FEATURE_COMPRESSEDSTACK
 DEFINE_CLASS(SAFE_CSHANDLE, Threading, SafeCompressedStackHandle)
@@ -1474,21 +1488,27 @@ DEFINE_CLASS(STACK_BUILDER_SINK,    Messaging,              StackBuilderSink)
 DEFINE_METHOD(STACK_BUILDER_SINK,   PRIVATE_PROCESS_MESSAGE,_PrivateProcessMessage,     IM_IntPtr_ArrObj_Obj_RefArrObj_RetObj)
 #endif
 
-DEFINE_CLASS_U(Diagnostics,            StackFrameHelper,           StackFrameHelper)
-DEFINE_FIELD_U(targetThread,               StackFrameHelper,   TargetThread)
+DEFINE_CLASS_U(Diagnostics,                StackFrameHelper,   StackFrameHelper)
+DEFINE_FIELD_U(targetThread,               StackFrameHelper,   targetThread)
 DEFINE_FIELD_U(rgiOffset,                  StackFrameHelper,   rgiOffset)
 DEFINE_FIELD_U(rgiILOffset,                StackFrameHelper,   rgiILOffset)
 DEFINE_FIELD_U(rgMethodBase,               StackFrameHelper,   rgMethodBase)
 DEFINE_FIELD_U(dynamicMethods,             StackFrameHelper,   dynamicMethods)
 DEFINE_FIELD_U(rgMethodHandle,             StackFrameHelper,   rgMethodHandle)
+DEFINE_FIELD_U(rgAssemblyPath,             StackFrameHelper,   rgAssemblyPath)
+DEFINE_FIELD_U(rgLoadedPeAddress,          StackFrameHelper,   rgLoadedPeAddress)
+DEFINE_FIELD_U(rgiLoadedPeSize,            StackFrameHelper,   rgiLoadedPeSize)
+DEFINE_FIELD_U(rgInMemoryPdbAddress,       StackFrameHelper,   rgInMemoryPdbAddress)
+DEFINE_FIELD_U(rgiInMemoryPdbSize,         StackFrameHelper,   rgiInMemoryPdbSize)
+DEFINE_FIELD_U(rgiMethodToken,             StackFrameHelper,   rgiMethodToken)
 DEFINE_FIELD_U(rgFilename,                 StackFrameHelper,   rgFilename)
 DEFINE_FIELD_U(rgiLineNumber,              StackFrameHelper,   rgiLineNumber)
 DEFINE_FIELD_U(rgiColumnNumber,            StackFrameHelper,   rgiColumnNumber)
 #if defined(FEATURE_EXCEPTIONDISPATCHINFO)
 DEFINE_FIELD_U(rgiLastFrameFromForeignExceptionStackTrace,            StackFrameHelper,   rgiLastFrameFromForeignExceptionStackTrace)
 #endif // defined(FEATURE_EXCEPTIONDISPATCHINFO)
+DEFINE_FIELD_U(getSourceLineInfo,          StackFrameHelper,   getSourceLineInfo)
 DEFINE_FIELD_U(iFrameCount,                StackFrameHelper,   iFrameCount)
-DEFINE_FIELD_U(fNeedFileInfo,              StackFrameHelper,   fNeedFileInfo)
 
 DEFINE_CLASS(STACK_TRACE,           Diagnostics,            StackTrace)
 DEFINE_METHOD(STACK_TRACE,          GET_MANAGED_STACK_TRACE_HELPER, GetManagedStackTraceStringHelper, SM_Bool_RetStr)
@@ -1674,6 +1694,7 @@ DEFINE_METHOD(FIRSTCHANCE_EVENTARGS,  CTOR,                   .ctor,            
 DEFINE_CLASS(ASSEMBLYLOADCONTEXT,  Loader,                AssemblyLoadContext)    
 DEFINE_METHOD(ASSEMBLYLOADCONTEXT,  RESOLVE,          Resolve,                      SM_IntPtr_AssemblyName_RetAssemblyBase)
 DEFINE_METHOD(ASSEMBLYLOADCONTEXT,  RESOLVEUNMANAGEDDLL,          ResolveUnmanagedDll,                      SM_Str_IntPtr_RetIntPtr)
+DEFINE_METHOD(ASSEMBLYLOADCONTEXT,  RESOLVEUSINGEVENT,          ResolveUsingResolvingEvent,                      SM_IntPtr_AssemblyName_RetAssemblyBase)
 
 #endif // defined(FEATURE_HOST_ASSEMBLY_RESOLVER)
 
@@ -2203,9 +2224,21 @@ DEFINE_CLASS(MODULEBASE,        Reflection,         Module)
 
 #ifdef FEATURE_ICASTABLE
 DEFINE_CLASS(ICASTABLE,         CompilerServices,   ICastable)
-DEFINE_METHOD(ICASTABLE,        ISINSTANCEOF,       IsInstanceOfInterface, IM_RuntimeTypeHandle_RefException_RetBool)
-DEFINE_METHOD(ICASTABLE,        GETIMPLTYPE,        GetImplType, IM_RuntimeTypeHandle_RetRuntimeTypeHandle)
+
+DEFINE_CLASS(ICASTABLEHELPERS,         CompilerServices,   ICastableHelpers)
+DEFINE_METHOD(ICASTABLEHELPERS,        ISINSTANCEOF,       IsInstanceOfInterface, SM_ICastable_RtType_RefException_RetBool)
+DEFINE_METHOD(ICASTABLEHELPERS,        GETIMPLTYPE,        GetImplType, SM_ICastable_RtType_RetRtType)
+
 #endif // FEATURE_ICASTABLE
+
+DEFINE_CLASS(CUTF8MARSHALER, StubHelpers, UTF8Marshaler)
+DEFINE_METHOD(CUTF8MARSHALER, CONVERT_TO_NATIVE, ConvertToNative, SM_Int_Str_IntPtr_RetIntPtr)
+DEFINE_METHOD(CUTF8MARSHALER, CONVERT_TO_MANAGED, ConvertToManaged, SM_IntPtr_RetStr)
+DEFINE_METHOD(CUTF8MARSHALER, CLEAR_NATIVE, ClearNative, SM_IntPtr_RetVoid)
+
+DEFINE_CLASS(UTF8BUFFERMARSHALER, StubHelpers, UTF8BufferMarshaler)
+DEFINE_METHOD(UTF8BUFFERMARSHALER, CONVERT_TO_NATIVE, ConvertToNative, NoSig)
+DEFINE_METHOD(UTF8BUFFERMARSHALER, CONVERT_TO_MANAGED, ConvertToManaged, NoSig)
 
 #undef DEFINE_CLASS
 #undef DEFINE_METHOD

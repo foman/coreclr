@@ -30,15 +30,12 @@
     <DebugType>PdbOnly</DebugType>
     <NoLogo>True</NoLogo>
     <DefineConstants>$(DefineConstants);DESKTOP</DefineConstants>
+    <NoWarn>$(NoWarn),8002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Core.cs" />
     <Compile Include="StandardSupport.cs" />
     <ProjectReference Include="jmpwrappers.ilproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(JitPackagesConfigFileDirectory)minimal\project.json" />
-    <None Include="app.config" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />

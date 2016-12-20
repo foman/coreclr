@@ -5,9 +5,7 @@
 #ifndef STUBLINKERX86_H_
 #define STUBLINKERX86_H_
 
-#ifndef CLR_STANDALONE_BINDER
 #include "stublink.h"
-#endif // !CLR_STANDALONE_BINDER
 
 struct ArrayOpScript;
 class MetaSig;
@@ -158,7 +156,6 @@ class X86CondCode {
 //----------------------------------------------------------------------
 // StubLinker with extensions for generating X86 code.
 //----------------------------------------------------------------------
-#ifndef CLR_STANDALONE_BINDER
 class StubLinkerCPU : public StubLinker
 {
     public:
@@ -348,6 +345,11 @@ class StubLinkerCPU : public StubLinker
 
         VOID EmitSetup(CodeLabel *pForwardRef);
         VOID EmitRareSetup(CodeLabel* pRejoinPoint, BOOL fThrow);
+
+#ifndef FEATURE_STUBS_AS_IL
+        VOID EmitMethodStubProlog(TADDR pFrameVptr, int transitionBlockOffset);
+        VOID EmitMethodStubEpilog(WORD numArgBytes, int transitionBlockOffset);
+
         VOID EmitCheckGSCookie(X86Reg frameReg, int gsCookieOffset);
 
 #ifdef _TARGET_X86_
@@ -356,10 +358,8 @@ class StubLinkerCPU : public StubLinker
 
         void EmitComMethodStubEpilog(TADDR pFrameVptr, CodeLabel** rgRareLabels, 
                                      CodeLabel** rgRejoinLabels, BOOL bShouldProfile);
-#endif
-
-        VOID EmitMethodStubProlog(TADDR pFrameVptr, int transitionBlockOffset);
-        VOID EmitMethodStubEpilog(WORD numArgBytes, int transitionBlockOffset);
+#endif // _TARGET_X86_
+#endif // !FEATURE_STUBS_AS_IL
 
         VOID EmitUnboxMethodStub(MethodDesc* pRealMD);
 #if defined(FEATURE_SHARE_GENERIC_CODE)  
@@ -377,13 +377,16 @@ class StubLinkerCPU : public StubLinker
                                            BOOL bShouldProfile);
 #endif // FEATURE_COMINTEROP && _TARGET_X86_
 
+#ifndef FEATURE_STUBS_AS_IL
         //===========================================================================
         // Computes hash code for MulticastDelegate.Invoke()
         static UINT_PTR HashMulticastInvoke(MetaSig* pSig);
 
+#ifdef _TARGET_X86_
         //===========================================================================
         // Emits code for Delegate.Invoke() any delegate type
         VOID EmitDelegateInvoke();
+#endif // _TARGET_X86_
 
         //===========================================================================
         // Emits code for MulticastDelegate.Invoke() - sig specific
@@ -392,22 +395,27 @@ class StubLinkerCPU : public StubLinker
         //===========================================================================
         // Emits code for Delegate.Invoke() on delegates that recorded creator assembly
         VOID EmitSecureDelegateInvoke(UINT_PTR hash);
+#endif // !FEATURE_STUBS_AS_IL
 
         //===========================================================================
         // Emits code to adjust for a static delegate target.
         VOID EmitShuffleThunk(struct ShuffleEntry *pShuffleEntryArray);
 
 
+#ifndef FEATURE_ARRAYSTUB_AS_IL
         //===========================================================================
         // Emits code to do an array operation.
         VOID EmitArrayOpStub(const ArrayOpScript*);
 
         //Worker function to emit throw helpers for array ops.
         VOID EmitArrayOpStubThrow(unsigned exConst, unsigned cbRetArg);
+#endif
 
+#ifndef FEATURE_STUBS_AS_IL
         //===========================================================================
         // Emits code to break into debugger
         VOID EmitDebugBreak();
+#endif // !FEATURE_STUBS_AS_IL
 
 #if defined(_DEBUG) && (defined(_TARGET_AMD64_) || defined(_TARGET_X86_)) && !defined(FEATURE_PAL)
         //===========================================================================
@@ -438,7 +446,6 @@ class StubLinkerCPU : public StubLinker
         static void Init();
 
 };
-#endif // !CLR_STANDALONE_BINDER
 
 inline TADDR rel32Decode(/*PTR_INT32*/ TADDR pRel32)
 {

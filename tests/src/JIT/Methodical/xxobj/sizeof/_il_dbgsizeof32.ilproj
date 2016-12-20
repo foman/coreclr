@@ -30,11 +30,8 @@
     <DebugType>Full</DebugType>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="64sizeof32.il" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(JitPackagesConfigFileDirectory)minimal\project.json" />
-    <None Include="app.config" />
+    <Compile Condition="'$(BuildArch)' == 'x86'" Include="sizeof32.il" />
+    <Compile Condition="'$(BuildArch)' != 'x86'" Include="64sizeof32.il" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />

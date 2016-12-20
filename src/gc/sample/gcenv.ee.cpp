@@ -9,30 +9,44 @@
 #include "gcenv.h"
 #include "gc.h"
 
+MethodTable * g_pFreeObjectMethodTable;
+
+int32_t g_TrapReturningThreads;
+
+bool g_fFinalizerRunOnShutDown;
+
 EEConfig * g_pConfig;
 
-void CLREventStatic::CreateManualEvent(bool bInitialState)
+bool CLREventStatic::CreateManualEventNoThrow(bool bInitialState)
 {
     m_hEvent = CreateEventW(NULL, TRUE, bInitialState, NULL);
     m_fInitialized = true;
+
+    return IsValid();
 }
 
-void CLREventStatic::CreateAutoEvent(bool bInitialState)
+bool CLREventStatic::CreateAutoEventNoThrow(bool bInitialState)
 {
     m_hEvent = CreateEventW(NULL, FALSE, bInitialState, NULL);
     m_fInitialized = true;
+
+    return IsValid();
 }
 
-void CLREventStatic::CreateOSManualEvent(bool bInitialState)
+bool CLREventStatic::CreateOSManualEventNoThrow(bool bInitialState)
 {
     m_hEvent = CreateEventW(NULL, TRUE, bInitialState, NULL);
     m_fInitialized = true;
+
+    return IsValid();
 }
 
-void CLREventStatic::CreateOSAutoEvent(bool bInitialState)
+bool CLREventStatic::CreateOSAutoEventNoThrow(bool bInitialState)
 {
     m_hEvent = CreateEventW(NULL, FALSE, bInitialState, NULL);
     m_fInitialized = true;
+
+    return IsValid();
 }
 
 void CLREventStatic::CloseEvent()
@@ -121,9 +135,9 @@ void ThreadStore::AttachCurrentThread()
     g_pThreadList = pThread;
 }
 
-void GCToEEInterface::SuspendEE(GCToEEInterface::SUSPEND_REASON reason)
+void GCToEEInterface::SuspendEE(SUSPEND_REASON reason)
 {
-    GCHeap::GetGCHeap()->SetGCInProgress(TRUE);
+    g_theGCHeap->SetGCInProgress(TRUE);
 
     // TODO: Implement
 }
@@ -132,7 +146,7 @@ void GCToEEInterface::RestartEE(bool bFinishedGC)
 {
     // TODO: Implement
 
-    GCHeap::GetGCHeap()->SetGCInProgress(FALSE);
+    g_theGCHeap->SetGCInProgress(FALSE);
 }
 
 void GCToEEInterface::GcScanRoots(promote_func* fn,  int condemned, int max_gen, ScanContext* sc)
@@ -176,12 +190,7 @@ void GCToEEInterface::DisablePreemptiveGC(Thread * pThread)
     pThread->DisablePreemptiveGC();
 }
 
-void GCToEEInterface::SetGCSpecial(Thread * pThread)
-{
-    pThread->SetGCSpecial(true);
-}
-
-alloc_context * GCToEEInterface::GetAllocContext(Thread * pThread)
+gc_alloc_context * GCToEEInterface::GetAllocContext(Thread * pThread)
 {
     return pThread->GetAllocContext();
 }
@@ -189,12 +198,6 @@ alloc_context * GCToEEInterface::GetAllocContext(Thread * pThread)
 bool GCToEEInterface::CatchAtSafePoint(Thread * pThread)
 {
     return pThread->CatchAtSafePoint();
-}
-
-// does not acquire thread store lock
-void GCToEEInterface::AttachCurrentThread()
-{
-    ThreadStore::AttachCurrentThread();
 }
 
 void GCToEEInterface::GcEnumAllocContexts (enum_alloc_context_func* fn, void* param)
@@ -218,6 +221,44 @@ void GCToEEInterface::SyncBlockCachePromotionsGranted(int /*max_gen*/)
 {
 }
 
+Thread* GCToEEInterface::CreateBackgroundThread(GCBackgroundThreadFunction threadStart, void* arg)
+{
+    // TODO: Implement for background GC
+    return NULL;
+}
+
+void GCToEEInterface::DiagGCStart(int gen, bool isInduced)
+{
+}
+
+void GCToEEInterface::DiagUpdateGenerationBounds()
+{
+}
+
+void GCToEEInterface::DiagGCEnd(size_t index, int gen, int reason, bool fConcurrent)
+{
+}
+
+void GCToEEInterface::DiagWalkFReachableObjects(void* gcContext)
+{
+}
+
+void GCToEEInterface::DiagWalkSurvivors(void* gcContext)
+{
+}
+
+void GCToEEInterface::DiagWalkLOHSurvivors(void* gcContext)
+{
+}
+
+void GCToEEInterface::DiagWalkBGCSurvivors(void* gcContext)
+{
+}
+
+void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
+{
+}
+
 void FinalizerThread::EnableFinalization()
 {
     // Signal to finalizer thread that there are objects to finalize
@@ -229,23 +270,22 @@ bool FinalizerThread::HaveExtraWorkForFinalizer()
     return false;
 }
 
-bool REDHAWK_PALAPI PalStartBackgroundGCThread(BackgroundCallback callback, void* pCallbackContext)
-{
-    // TODO: Implement for background GC
-    return false;
-}
-
 bool IsGCSpecialThread()
 {
     // TODO: Implement for background GC
     return false;
 }
 
-void StompWriteBarrierEphemeral()
+bool IsGCThread()
+{
+    return false;
+}
+
+void SwitchToWriteWatchBarrier()
 {
 }
 
-void StompWriteBarrierResize(bool /*bReqUpperBoundsCheck*/)
+void SwitchToNonWriteWatchBarrier()
 {
 }
 

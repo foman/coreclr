@@ -596,7 +596,7 @@ PCODE Thread::VirtualUnwindCallFrame(T_CONTEXT* pContext,
     
 #if !defined(DACCESS_COMPILE)
     UINT_PTR            uImageBase;
-    PRUNTIME_FUNCTION   pFunctionEntry;
+    PT_RUNTIME_FUNCTION pFunctionEntry;
 
     if (pCodeInfo == NULL)
     {
@@ -623,7 +623,7 @@ PCODE Thread::VirtualUnwindCallFrame(T_CONTEXT* pContext,
 
 #if defined(_DEBUG) && !defined(FEATURE_PAL)
         UINT_PTR            uImageBaseFromOS;
-        PRUNTIME_FUNCTION   pFunctionEntryFromOS;
+        PT_RUNTIME_FUNCTION pFunctionEntryFromOS;
 
         pFunctionEntryFromOS  = RtlLookupFunctionEntry(uControlPc,
                                                        ARM_ONLY((DWORD*))(&uImageBaseFromOS),
@@ -679,7 +679,7 @@ PCODE Thread::VirtualUnwindLeafCallFrame(T_CONTEXT* pContext)
 #if defined(_DEBUG) && !defined(FEATURE_PAL)
     UINT_PTR uImageBase;
 
-    PRUNTIME_FUNCTION pFunctionEntry  = RtlLookupFunctionEntry((UINT_PTR)GetIP(pContext),
+    PT_RUNTIME_FUNCTION pFunctionEntry  = RtlLookupFunctionEntry((UINT_PTR)GetIP(pContext),
                                                                 ARM_ONLY((DWORD*))(&uImageBase),
                                                                 NULL);
 
@@ -708,7 +708,7 @@ PCODE Thread::VirtualUnwindLeafCallFrame(T_CONTEXT* pContext)
 
 // static
 PCODE Thread::VirtualUnwindNonLeafCallFrame(T_CONTEXT* pContext, KNONVOLATILE_CONTEXT_POINTERS* pContextPointers, 
-    PRUNTIME_FUNCTION pFunctionEntry, UINT_PTR uImageBase)
+    PT_RUNTIME_FUNCTION pFunctionEntry, UINT_PTR uImageBase)
 {
     CONTRACTL
     {
@@ -789,14 +789,8 @@ UINT_PTR Thread::VirtualUnwindToFirstManagedCallFrame(T_CONTEXT* pContext)
 
         if (uControlPc == 0)
         {
-            // This displays the managed stack in case the unwind has walked out of the stack and
-            // a managed exception was being unwound.
-            DefaultCatchHandler(NULL /*pExceptionInfo*/, NULL /*Throwable*/, TRUE /*useLastThrownObject*/,
-                                TRUE /*isTerminating*/, FALSE /*isThreadBaseFIlter*/, FALSE /*sendAppDomainEvents*/);
-
-            EEPOLICY_HANDLE_FATAL_ERROR(COR_E_EXECUTIONENGINE);
+            break;
         }
-
 #endif // !FEATURE_PAL
     }
 
@@ -1689,8 +1683,6 @@ StackWalkAction StackFrameIterator::Filter(void)
 ProcessFuncletsForGCReporting:
                 do
                 {
-                    fRecheckCurrentFrame = false;
-                    
                     // When enumerating GC references for "liveness" reporting, depending upon the architecture,
                     // the responsibility of who reports what varies:
                     //
@@ -1749,9 +1741,12 @@ ProcessFuncletsForGCReporting:
                         // was a caller of an already executed exception handler based on the previous exception trackers.
                         // The handler funclet frames are already gone from the stack, so the exception trackers are the
                         // only source of evidence about it.
+                        // The filter funclet is different though, its frame is always present on the stack when its parent
+                        // frame is reached by the stack walker, because no exception can escape a filter funclet.
                         // This is different from Windows where the full stack is preserved until an exception is fully handled
                         // and so we can detect it just from walking the stack.
-                        if (!fSkippingFunclet && (pTracker != NULL))
+                        bool fProcessingFilterFunclet = !m_sfFuncletParent.IsNull() && !(m_fProcessNonFilterFunclet || m_fProcessIntermediaryNonFilterFunclet);
+                        if (!fRecheckCurrentFrame && !fSkippingFunclet && (pTracker != NULL) && !fProcessingFilterFunclet)
                         {
                             // The stack walker is not skipping frames now, which means it didn't find a funclet frame that
                             // would require skipping the current frame. If we find a tracker with caller of actual handling
@@ -1764,14 +1759,14 @@ ProcessFuncletsForGCReporting:
                             {
                                 if (hasFuncletStarted)
                                 {
-                                    sfFuncletParent = pCurrTracker->GetCallerOfActualHandlingFrame();
+                                    sfFuncletParent = pCurrTracker->GetCallerOfEnclosingClause();
                                     if (!sfFuncletParent.IsNull() && ExceptionTracker::IsUnwoundToTargetParentFrame(&m_crawl, sfFuncletParent))
                                     {
                                         break;
                                     }
                                 }
 
-                                sfFuncletParent = pCurrTracker->GetCallerOfCollapsedActualHandlingFrame();
+                                sfFuncletParent = pCurrTracker->GetCallerOfCollapsedEnclosingClause();
                                 if (!sfFuncletParent.IsNull() && ExceptionTracker::IsUnwoundToTargetParentFrame(&m_crawl, sfFuncletParent))
                                 {
                                     break;
@@ -1793,9 +1788,12 @@ ProcessFuncletsForGCReporting:
                                 m_sfFuncletParent = sfFuncletParent;
                                 m_fProcessNonFilterFunclet = true;
                                 m_fDidFuncletReportGCReferences = false;
+                                fSkippingFunclet = true;
                             }
                         }
 #endif // FEATURE_PAL
+
+                        fRecheckCurrentFrame = false;
                         // Do we already have a reference to a funclet parent?
                         if (!m_sfFuncletParent.IsNull())
                         {
@@ -2000,6 +1998,7 @@ ProcessFuncletsForGCReporting:
                                         // Since we are in GC reference reporting mode,
                                         // then avoid code duplication and go to
                                         // funclet processing.
+                                        fRecheckCurrentFrame = true;
                                         goto ProcessFuncletsForGCReporting;
                                     }
                                 }
@@ -2105,6 +2104,7 @@ ProcessFuncletsForGCReporting:
                                 // If we are in GC reference reporting mode,
                                 // then avoid code duplication and go to
                                 // funclet processing.
+                                fRecheckCurrentFrame = true;
                                 goto ProcessFuncletsForGCReporting;
                             }
                             else
@@ -2416,7 +2416,7 @@ StackWalkAction StackFrameIterator::NextRaw(void)
                 OBJECTREF      orUnwind = NULL;
 
                 if (m_crawl.GetCodeManager()->IsInSynchronizedRegion(m_crawl.GetRelOffset(),
-                                                                    m_crawl.GetGCInfo(), 
+                                                                    m_crawl.GetGCInfoToken(), 
                                                                     m_crawl.GetCodeManagerFlags()))
                 {
                     if (pMD->IsStatic())
@@ -2488,6 +2488,12 @@ StackWalkAction StackFrameIterator::NextRaw(void)
             bool fInsertCacheEntry = m_crawl.stackWalkCache.Enabled() && 
                                      (m_flags & LIGHTUNWIND) &&
                                      (m_pCachedGSCookie == NULL);
+ 
+            // Is this a dynamic method. Dynamic methods can be GC collected and so IP to method mapping
+            // is not persistent. Therefore do not cache information for this frame.
+            BOOL isCollectableMethod = ExecutionManager::IsCollectibleMethod(m_crawl.GetMethodToken());
+            if(isCollectableMethod)
+                fInsertCacheEntry = FALSE;
 
             StackwalkCacheUnwindInfo unwindInfo;
 
@@ -2554,7 +2560,9 @@ StackWalkAction StackFrameIterator::NextRaw(void)
         // to recover from AVs during profiler stackwalk.)
 
         PTR_VOID newSP = PTR_VOID((TADDR)GetRegdisplaySP(m_crawl.pRD));
+#ifndef NO_FIXED_STACK_LIMIT
         FAIL_IF_SPECULATIVE_WALK(newSP >= m_crawl.pThread->GetCachedStackLimit());
+#endif // !NO_FIXED_STACK_LIMIT
         FAIL_IF_SPECULATIVE_WALK(newSP < m_crawl.pThread->GetCachedStackBase());
 
 #undef FAIL_IF_SPECULATIVE_WALK
@@ -2669,7 +2677,7 @@ StackWalkAction StackFrameIterator::NextRaw(void)
 
                 // We are transitioning from unmanaged code to managed code... lets do some validation of our
                 // EH mechanism on platforms that we can.
-#if defined(_DEBUG)  && !defined(DACCESS_COMPILE) && defined(_TARGET_X86_)
+#if defined(_DEBUG)  && !defined(DACCESS_COMPILE) && (defined(_TARGET_X86_) && !defined(FEATURE_STUBS_AS_IL))
                 VerifyValidTransitionFromManagedCode(m_crawl.pThread, &m_crawl);
 #endif // _DEBUG && !DACCESS_COMPILE && _TARGET_X86_
             }
@@ -3152,7 +3160,7 @@ void StackFrameIterator::PreProcessingForManagedFrames(void)
          m_crawl.pFunc->IsSynchronized() && 
          !m_crawl.pFunc->IsStatic()      &&
          m_crawl.GetCodeManager()->IsInSynchronizedRegion(m_crawl.GetRelOffset(), 
-                                                         m_crawl.GetGCInfo(), 
+                                                         m_crawl.GetGCInfoToken(), 
                                                          m_crawl.GetCodeManagerFlags()))
     {
         BEGIN_GCX_ASSERT_COOP;

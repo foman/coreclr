@@ -7,12 +7,12 @@
 namespace System.Reflection.Emit 
 {
     using System;
-    using TextWriter = System.IO.TextWriter;
     using System.Diagnostics.SymbolStore;
     using System.Runtime.InteropServices;
     using System.Reflection;
     using System.Security.Permissions;
     using System.Globalization;
+    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     
     [ClassInterface(ClassInterfaceType.None)]
@@ -28,44 +28,37 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Internal Statics
-        internal static int[] EnlargeArray(int[] incoming)
+        internal static T[] EnlargeArray<T>(T[] incoming)
+        {
+            return EnlargeArray(incoming, incoming.Length * 2);
+        }
+        
+        internal static T[] EnlargeArray<T>(T[] incoming, int requiredSize)
         {
             Contract.Requires(incoming != null);
-            Contract.Ensures(Contract.Result<int[]>() != null);
-            Contract.Ensures(Contract.Result<int[]>().Length > incoming.Length);
-            int[] temp = new int [incoming.Length*2];
-            Array.Copy(incoming, temp, incoming.Length);
+            Contract.Ensures(Contract.Result<T[]>() != null);
+            Contract.Ensures(Contract.Result<T[]>().Length == requiredSize);
+            
+            T[] temp = new T[requiredSize];
+            Array.Copy(incoming, 0, temp, 0, incoming.Length);
             return temp;
         }
-
+        
         private static byte[] EnlargeArray(byte[] incoming)
         {
-            byte [] temp = new byte [incoming.Length*2];
-            Array.Copy(incoming, temp, incoming.Length);
-            return temp;
+            return EnlargeArray(incoming, incoming.Length * 2);
         }
 
         private static byte[] EnlargeArray(byte[] incoming, int requiredSize)
         {
-            byte [] temp = new byte [requiredSize];
-            Array.Copy(incoming, temp, incoming.Length);
+            Contract.Requires(incoming != null);
+            Contract.Ensures(Contract.Result<byte[]>() != null);
+            Contract.Ensures(Contract.Result<byte[]>().Length == requiredSize);
+            
+            byte[] temp = new byte[requiredSize];
+            Buffer.BlockCopy(incoming, 0, temp, 0, incoming.Length);
             return temp;
         }
-
-        private static __FixupData[] EnlargeArray(__FixupData[] incoming)
-        {
-            __FixupData [] temp = new __FixupData[incoming.Length*2];
-            //Does arraycopy work for value classes?
-            Array.Copy(incoming, temp, incoming.Length);
-            return temp;
-        }
-
-        private static __ExceptionInfo[] EnlargeArray(__ExceptionInfo[] incoming)
-        {
-            __ExceptionInfo[] temp = new __ExceptionInfo[incoming.Length*2];
-            Array.Copy(incoming, temp, incoming.Length);
-            return temp;
-        }        
         #endregion
 
         #region Internal Data Members
@@ -217,20 +210,17 @@ namespace System.Reflection.Emit
             }
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         private int GetMethodToken(MethodBase method, Type[] optionalParameterTypes, bool useMethodDef)
         {
             return ((ModuleBuilder)m_methodBuilder.Module).GetMethodTokenInternal(method, optionalParameterTypes, useMethodDef);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal virtual SignatureHelper GetMemberRefSignature(CallingConventions call, Type returnType, 
             Type[] parameterTypes, Type[] optionalParameterTypes)
         {
             return GetMemberRefSignature(call, returnType, parameterTypes, optionalParameterTypes, 0);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         private SignatureHelper GetMemberRefSignature(CallingConventions call, Type returnType, 
             Type[] parameterTypes, Type[] optionalParameterTypes, int cGenericParameters)
         {
@@ -244,7 +234,7 @@ namespace System.Reflection.Emit
 
             int newSize;
             int updateAddr;
-            byte []newBytes;
+            byte[] newBytes;
 
             if (m_currExcStackCount != 0)
             {
@@ -260,7 +250,7 @@ namespace System.Reflection.Emit
             newBytes = new byte[newSize];
 
             //Copy the data from the old array
-            Array.Copy(m_ILStream, newBytes, newSize);
+            Buffer.BlockCopy(m_ILStream, 0, newBytes, 0, newSize);
 
             //Do the fixups.
             //This involves iterating over all of the labels and
@@ -313,7 +303,7 @@ namespace System.Reflection.Emit
             }
             
             temp = new __ExceptionInfo[m_exceptionCount];
-            Array.Copy(m_exceptions, temp, m_exceptionCount);
+            Array.Copy(m_exceptions, 0, temp, 0, m_exceptionCount);
             SortExceptions(temp);
             return temp;
         }
@@ -421,12 +411,12 @@ namespace System.Reflection.Emit
         {
             if (m_RelocFixupCount == 0)
             {
-                Contract.Assert(m_RelocFixupList == null);
+                Debug.Assert(m_RelocFixupList == null);
                 return null;
             }
 
             int[] narrowTokens = new int[m_RelocFixupCount];
-            Array.Copy(m_RelocFixupList, narrowTokens, m_RelocFixupCount);
+            Array.Copy(m_RelocFixupList, 0, narrowTokens, 0, m_RelocFixupCount);
             return narrowTokens;
         }
         #endregion
@@ -479,11 +469,10 @@ namespace System.Reflection.Emit
             PutInteger4(arg);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void Emit(OpCode opcode, MethodInfo meth)
         {
             if (meth == null)
-                throw new ArgumentNullException("meth");
+                throw new ArgumentNullException(nameof(meth));
             Contract.EndContractBlock();
 
             if (opcode.Equals(OpCodes.Call) || opcode.Equals(OpCodes.Callvirt) || opcode.Equals(OpCodes.Newobj))
@@ -511,7 +500,6 @@ namespace System.Reflection.Emit
         }
 
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void EmitCalli(OpCode opcode, CallingConventions callingConvention, 
             Type returnType, Type[] parameterTypes, Type[] optionalParameterTypes)
         {
@@ -600,14 +588,13 @@ namespace System.Reflection.Emit
             PutInteger4(modBuilder.GetSignatureToken(sig).Token);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void EmitCall(OpCode opcode, MethodInfo methodInfo, Type[] optionalParameterTypes)
         {
             if (methodInfo == null)
-                throw new ArgumentNullException("methodInfo");
+                throw new ArgumentNullException(nameof(methodInfo));
 
             if (!(opcode.Equals(OpCodes.Call) || opcode.Equals(OpCodes.Callvirt) || opcode.Equals(OpCodes.Newobj)))
-                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), "opcode");
+                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), nameof(opcode));
 
             Contract.EndContractBlock();
 
@@ -641,7 +628,7 @@ namespace System.Reflection.Emit
         public virtual void Emit(OpCode opcode, SignatureHelper signature)
         {
             if (signature == null)
-                throw new ArgumentNullException("signature");
+                throw new ArgumentNullException(nameof(signature));
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -660,7 +647,7 @@ namespace System.Reflection.Emit
             // SignatureHelper.
             if (opcode.StackBehaviourPop == StackBehaviour.Varpop)
             {
-                Contract.Assert(opcode.Equals(OpCodes.Calli),
+                Debug.Assert(opcode.Equals(OpCodes.Calli),
                                 "Unexpected opcode encountered for StackBehaviour VarPop.");
                 // Pop the arguments..
                 stackchange -= signature.ArgumentCount;
@@ -673,12 +660,11 @@ namespace System.Reflection.Emit
             PutInteger4(tempVal);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(true)]
         public virtual void Emit(OpCode opcode, ConstructorInfo con)
         {
             if (con == null)
-                throw new ArgumentNullException("con");
+                throw new ArgumentNullException(nameof(con));
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -694,7 +680,7 @@ namespace System.Reflection.Emit
             if (opcode.StackBehaviourPush == StackBehaviour.Varpush)
             {
                 // Instruction must be one of call or callvirt.
-                Contract.Assert(opcode.Equals(OpCodes.Call) ||
+                Debug.Assert(opcode.Equals(OpCodes.Call) ||
                                 opcode.Equals(OpCodes.Callvirt),
                                 "Unexpected opcode encountered for StackBehaviour of VarPush.");
                 stackchange++;
@@ -702,7 +688,7 @@ namespace System.Reflection.Emit
             if (opcode.StackBehaviourPop == StackBehaviour.Varpop)
             {
                 // Instruction must be one of call, callvirt or newobj.
-                Contract.Assert(opcode.Equals(OpCodes.Call) ||
+                Debug.Assert(opcode.Equals(OpCodes.Call) ||
                                 opcode.Equals(OpCodes.Callvirt) ||
                                 opcode.Equals(OpCodes.Newobj),
                                 "Unexpected opcode encountered for StackBehaviour of VarPop.");
@@ -717,7 +703,6 @@ namespace System.Reflection.Emit
             PutInteger4(tk);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void Emit(OpCode opcode, Type cls)
         {
             // Puts opcode onto the stream and then the metadata token represented
@@ -757,7 +742,6 @@ namespace System.Reflection.Emit
             m_ILStream[m_length++] = (byte) (arg>>56);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe public virtual void Emit(OpCode opcode, float arg) {
             EnsureCapacity(7);
             InternalEmit(opcode);
@@ -768,7 +752,6 @@ namespace System.Reflection.Emit
             m_ILStream[m_length++] = (byte) (tempVal>>24);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe public virtual void Emit(OpCode opcode, double arg) {
             EnsureCapacity(11);
             InternalEmit(opcode);
@@ -812,7 +795,7 @@ namespace System.Reflection.Emit
         public virtual void Emit(OpCode opcode, Label[] labels)
         {
             if (labels == null)
-                throw new ArgumentNullException("labels");
+                throw new ArgumentNullException(nameof(labels));
             Contract.EndContractBlock();
 
             // Emitting a switch table
@@ -861,13 +844,13 @@ namespace System.Reflection.Emit
 
             if (local == null)
             {
-                throw new ArgumentNullException("local");
+                throw new ArgumentNullException(nameof(local));
             }
             Contract.EndContractBlock();
             int tempVal = local.GetLocalIndex();
             if (local.GetMethodBuilder() != m_methodBuilder)
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_UnmatchedMethodForLocal"), "local");
+                throw new ArgumentException(Environment.GetResourceString("Argument_UnmatchedMethodForLocal"), nameof(local));
             }
             // If the instruction is a ldloc, ldloca a stloc, morph it to the optimal form.
             if (opcode.Equals(OpCodes.Ldloc))
@@ -1027,7 +1010,7 @@ namespace System.Reflection.Emit
 
         public virtual void BeginExceptFilterBlock() 
         {
-            // Begins a eception filter block.  Emits a branch instruction to the end of the current exception block.
+            // Begins an exception filter block.  Emits a branch instruction to the end of the current exception block.
 
             if (m_currExcStackCount == 0)
                 throw new NotSupportedException(Environment.GetResourceString("Argument_NotInExceptionBlock"));
@@ -1058,7 +1041,7 @@ namespace System.Reflection.Emit
             } else {
                 // execute this branch if previous clause is Catch or Fault
                 if (exceptionType==null) {
-                    throw new ArgumentNullException("exceptionType");
+                    throw new ArgumentNullException(nameof(exceptionType));
                 }
 
                 Label endLabel = current.GetEndLabel();
@@ -1160,7 +1143,7 @@ namespace System.Reflection.Emit
             // Emits the il to throw an exception
 
             if (excType==null) {
-                throw new ArgumentNullException("excType");
+                throw new ArgumentNullException(nameof(excType));
             }
 
             if (!excType.IsSubclassOf(typeof(Exception)) && excType!=typeof(Exception)) {
@@ -1219,9 +1202,9 @@ namespace System.Reflection.Emit
                 throw new ArgumentException(Environment.GetResourceString("NotSupported_OutputStreamUsingTypeBuilder"));
             }
             parameterTypes[0] = (Type)cls;
-            MethodInfo mi = typeof(TextWriter).GetMethod("WriteLine", parameterTypes);
+            MethodInfo mi = prop.ReturnType.GetMethod("WriteLine", parameterTypes);
              if (mi==null) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), "localBuilder");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), nameof(localBuilder));
             }
 
             Emit(OpCodes.Callvirt, mi);
@@ -1238,7 +1221,7 @@ namespace System.Reflection.Emit
 
             if (fld == null)
             {
-                throw new ArgumentNullException("fld");
+                throw new ArgumentNullException(nameof(fld));
             }
             Contract.EndContractBlock();
             
@@ -1257,9 +1240,9 @@ namespace System.Reflection.Emit
                 throw new NotSupportedException(Environment.GetResourceString("NotSupported_OutputStreamUsingTypeBuilder"));
             }
             parameterTypes[0] = (Type)cls;
-            MethodInfo mi = typeof(TextWriter).GetMethod("WriteLine", parameterTypes);
+            MethodInfo mi = prop.ReturnType.GetMethod("WriteLine", parameterTypes);
             if (mi==null) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), "fld");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), nameof(fld));
             }
             Emit(OpCodes.Callvirt, mi);
         }
@@ -1290,7 +1273,7 @@ namespace System.Reflection.Emit
             }
 
             if (localType==null) {
-                throw new ArgumentNullException("localType");
+                throw new ArgumentNullException(nameof(localType));
             }
 
             if (methodBuilder.m_bIsBaked) {
@@ -1311,10 +1294,10 @@ namespace System.Reflection.Emit
             // for the current active lexical scope.
 
             if (usingNamespace == null)
-                throw new ArgumentNullException("usingNamespace");
+                throw new ArgumentNullException(nameof(usingNamespace));
 
             if (usingNamespace.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), "usingNamespace");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), nameof(usingNamespace));
             Contract.EndContractBlock();
 
             int index;
@@ -1342,7 +1325,7 @@ namespace System.Reflection.Emit
         {
             if (startLine == 0 || startLine < 0 || endLine == 0 || endLine < 0)
             {
-                throw new ArgumentOutOfRangeException("startLine");
+                throw new ArgumentOutOfRangeException(nameof(startLine));
             }
             Contract.EndContractBlock();
             m_LineNumberInfo.AddLineNumberInfo(document, m_length, startLine, startColumn, endLine, endColumn);
@@ -1369,28 +1352,6 @@ namespace System.Reflection.Emit
         #endregion
 
         #endregion
-
-#if !FEATURE_CORECLR
-        void _ILGenerator.GetTypeInfoCount(out uint pcTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _ILGenerator.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _ILGenerator.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _ILGenerator.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
-        {
-            throw new NotImplementedException();
-        }
-#endif
     }
 
     internal struct __FixupData
@@ -1459,13 +1420,6 @@ namespace System.Reflection.Emit
             m_currentState = State_Try;
         }
 
-        private static Type[] EnlargeArray(Type[] incoming)
-        {
-            Type[] temp = new Type[incoming.Length * 2];
-            Array.Copy(incoming, temp, incoming.Length);
-            return temp;
-        }
-
         private void MarkHelper(
             int         catchorfilterAddr,      // the starting address of a clause
             int         catchEndAddr,           // the end address of a previous catch clause. Only use when finally is following a catch
@@ -1476,7 +1430,7 @@ namespace System.Reflection.Emit
                 m_filterAddr=ILGenerator.EnlargeArray(m_filterAddr);
                 m_catchAddr=ILGenerator.EnlargeArray(m_catchAddr);
                 m_catchEndAddr=ILGenerator.EnlargeArray(m_catchEndAddr);
-                m_catchClass=__ExceptionInfo.EnlargeArray(m_catchClass);
+                m_catchClass=ILGenerator.EnlargeArray(m_catchClass);
                 m_type = ILGenerator.EnlargeArray(m_type);
             }
             if (type == Filter)
@@ -1486,7 +1440,7 @@ namespace System.Reflection.Emit
                 m_catchAddr[m_currentCatch] = -1;
                 if (m_currentCatch > 0)
                 {
-                    Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+                    Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
                     m_catchEndAddr[m_currentCatch-1] = catchorfilterAddr;
                 }
             }
@@ -1503,7 +1457,7 @@ namespace System.Reflection.Emit
                 {
                         if (m_type[m_currentCatch] != Filter)
                         {
-                            Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+                            Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
                             m_catchEndAddr[m_currentCatch-1] = catchEndAddr;
                         }
                 }
@@ -1545,9 +1499,9 @@ namespace System.Reflection.Emit
         }
 
         internal void Done(int endAddr) {
-            Contract.Assert(m_currentCatch > 0,"m_currentCatch > 0");
-            Contract.Assert(m_catchAddr[m_currentCatch-1] > 0,"m_catchAddr[m_currentCatch-1] > 0");
-            Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+            Debug.Assert(m_currentCatch > 0,"m_currentCatch > 0");
+            Debug.Assert(m_catchAddr[m_currentCatch-1] > 0,"m_catchAddr[m_currentCatch-1] > 0");
+            Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
             m_catchEndAddr[m_currentCatch-1] = endAddr;
             m_currentState = State_Done;
         }
@@ -1610,8 +1564,8 @@ namespace System.Reflection.Emit
         // not having a nesting relation. 
         internal bool IsInner(__ExceptionInfo exc) {
             Contract.Requires(exc != null);
-            Contract.Assert(m_currentCatch > 0,"m_currentCatch > 0");
-            Contract.Assert(exc.m_currentCatch > 0,"exc.m_currentCatch > 0");
+            Debug.Assert(m_currentCatch > 0,"m_currentCatch > 0");
+            Debug.Assert(exc.m_currentCatch > 0,"exc.m_currentCatch > 0");
 
             int exclast = exc.m_currentCatch - 1;
             int last = m_currentCatch - 1;
@@ -1620,7 +1574,7 @@ namespace System.Reflection.Emit
                 return true;
             else if (exc.m_catchEndAddr[exclast] == m_catchEndAddr[last])
             {
-                Contract.Assert(exc.GetEndAddress() != GetEndAddress(),
+                Debug.Assert(exc.GetEndAddress() != GetEndAddress(),
                                 "exc.GetEndAddress() != GetEndAddress()");
                 if (exc.GetEndAddress() > GetEndAddress())
                     return true;
@@ -1763,22 +1717,19 @@ namespace System.Reflection.Emit
                 // It would probably be simpler to just use Lists here.
                 int newSize = checked(m_iCount * 2);
                 int[] temp = new int[newSize];
-                Array.Copy(m_iOffsets, temp, m_iCount);
+                Array.Copy(m_iOffsets, 0, temp, 0, m_iCount);
                 m_iOffsets = temp;
 
                 ScopeAction[] tempSA = new ScopeAction[newSize];
-                Array.Copy(m_ScopeActions, tempSA, m_iCount);
+                Array.Copy(m_ScopeActions, 0, tempSA, 0, m_iCount);
                 m_ScopeActions = tempSA;
 
                 LocalSymInfo[] tempLSI = new LocalSymInfo[newSize];
-                Array.Copy(m_localSymInfos, tempLSI, m_iCount);
+                Array.Copy(m_localSymInfos, 0, tempLSI, 0, m_iCount);
                 m_localSymInfos = tempLSI;
             }
         }
 
-        #if FEATURE_CORECLR
-        [System.Security.SecurityCritical] // auto-generated
-        #endif
         internal void EmitScopeTree(ISymbolWriter symWriter)
         {
             int         i;
@@ -1835,7 +1786,7 @@ namespace System.Reflection.Emit
             // make sure that arrays are large enough to hold addition info
             i = FindDocument(document);
             
-            Contract.Assert(i < m_DocumentCount, "Bad document look up!");
+            Debug.Assert(i < m_DocumentCount, "Bad document look up!");
             m_Documents[i].AddLineNumberInfo(document, iOffset, iStartLine, iStartColumn, iEndLine, iEndColumn);
         }
         
@@ -1883,14 +1834,11 @@ namespace System.Reflection.Emit
             {
                 // the arrays are full. Enlarge the arrays
                 REDocument[] temp = new REDocument [m_DocumentCount * 2];
-                Array.Copy(m_Documents, temp, m_DocumentCount);
+                Array.Copy(m_Documents, 0, temp, 0, m_DocumentCount);
                 m_Documents = temp;
             }
         }
 
-        #if FEATURE_CORECLR
-        [System.Security.SecurityCritical] // auto-generated
-        #endif
         internal void EmitLineNumberInfo(ISymbolWriter symWriter)
         {
             for (int i = 0; i < m_DocumentCount; i++)
@@ -1926,7 +1874,7 @@ namespace System.Reflection.Emit
             int             iEndLine,
             int             iEndColumn)
         {
-            Contract.Assert(document == m_document, "Bad document look up!");
+            Debug.Assert(document == m_document, "Bad document look up!");
             
             // make sure that arrays are large enough to hold addition info
             EnsureCapacity();
@@ -1961,30 +1909,27 @@ namespace System.Reflection.Emit
                 // It would probably be simpler to just use Lists here
                 int newSize = checked(m_iLineNumberCount * 2);
                 int[] temp = new int [newSize];
-                Array.Copy(m_iOffsets, temp, m_iLineNumberCount);
+                Array.Copy(m_iOffsets, 0, temp, 0, m_iLineNumberCount);
                 m_iOffsets = temp;
 
                 temp = new int [newSize];
-                Array.Copy(m_iLines, temp, m_iLineNumberCount);
+                Array.Copy(m_iLines, 0, temp, 0, m_iLineNumberCount);
                 m_iLines = temp;
 
                 temp = new int [newSize];
-                Array.Copy(m_iColumns, temp, m_iLineNumberCount);
+                Array.Copy(m_iColumns, 0, temp, 0, m_iLineNumberCount);
                 m_iColumns = temp;
 
                 temp = new int [newSize];
-                Array.Copy(m_iEndLines, temp, m_iLineNumberCount);
+                Array.Copy(m_iEndLines, 0, temp, 0, m_iLineNumberCount);
                 m_iEndLines = temp;
 
                 temp = new int [newSize];
-                Array.Copy(m_iEndColumns, temp, m_iLineNumberCount);
+                Array.Copy(m_iEndColumns, 0, temp, 0, m_iLineNumberCount);
                 m_iEndColumns = temp;
             }
         }
 
-        #if FEATURE_CORECLR
-        [System.Security.SecurityCritical] // auto-generated
-        #endif
         internal void EmitLineNumberInfo(ISymbolWriter symWriter)
         {
             int[]       iOffsetsTemp;
@@ -1997,19 +1942,19 @@ namespace System.Reflection.Emit
                 return;
             // reduce the array size to be exact
             iOffsetsTemp = new int [m_iLineNumberCount];
-            Array.Copy(m_iOffsets, iOffsetsTemp, m_iLineNumberCount);
+            Array.Copy(m_iOffsets, 0, iOffsetsTemp, 0, m_iLineNumberCount);
 
             iLinesTemp = new int [m_iLineNumberCount];
-            Array.Copy(m_iLines, iLinesTemp, m_iLineNumberCount);
+            Array.Copy(m_iLines, 0, iLinesTemp, 0, m_iLineNumberCount);
 
             iColumnsTemp = new int [m_iLineNumberCount];
-            Array.Copy(m_iColumns, iColumnsTemp, m_iLineNumberCount);
+            Array.Copy(m_iColumns, 0, iColumnsTemp, 0, m_iLineNumberCount);
 
             iEndLinesTemp = new int [m_iLineNumberCount];
-            Array.Copy(m_iEndLines, iEndLinesTemp, m_iLineNumberCount);
+            Array.Copy(m_iEndLines, 0, iEndLinesTemp, 0, m_iLineNumberCount);
 
             iEndColumnsTemp = new int [m_iLineNumberCount];
-            Array.Copy(m_iEndColumns, iEndColumnsTemp, m_iLineNumberCount);
+            Array.Copy(m_iEndColumns, 0, iEndColumnsTemp, 0, m_iLineNumberCount);
 
             symWriter.DefineSequencePoints(m_document, iOffsetsTemp, iLinesTemp, iColumnsTemp, iEndLinesTemp, iEndColumnsTemp); 
         }

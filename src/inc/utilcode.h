@@ -29,6 +29,7 @@
 #include "winnls.h"
 #include "check.h"
 #include "safemath.h"
+#include "new.hpp"
 
 #ifdef PAL_STDCPP_COMPAT
 #include <type_traits>
@@ -47,15 +48,36 @@ const WCHAR kWatsonName2[] = W("drwtsn32");
 
 #include "random.h"
 
-// Windows CoreSystem has a different naming scheme for some dlls, which we must take account of when doing
-// LoadLibrary and the like.
-#if defined(FEATURE_CORESYSTEM)
-#define WINDOWS_KERNEL32_DLLNAME_A "kernelbase"
-#define WINDOWS_KERNEL32_DLLNAME_W W("kernelbase")
-#elif !defined(FEATURE_CORESYSTEM) || defined(CROSS_COMPILE)
 #define WINDOWS_KERNEL32_DLLNAME_A "kernel32"
 #define WINDOWS_KERNEL32_DLLNAME_W W("kernel32")
-#endif
+
+#if defined(FEATURE_CORECLR)
+#define CoreLibName_W W("System.Private.CoreLib")
+#define CoreLibName_IL_W W("System.Private.CoreLib.dll")
+#define CoreLibName_NI_W W("System.Private.CoreLib.ni.dll")
+#define CoreLibName_TLB_W W("System.Private.CoreLib.tlb")
+#define CoreLibName_A "System.Private.CoreLib"
+#define CoreLibName_IL_A "System.Private.CoreLib.dll"
+#define CoreLibName_NI_A "System.Private.CoreLib.ni.dll"
+#define CoreLibName_TLB_A "System.Private.CoreLib.tlb"
+#define CoreLibNameLen 22
+#define CoreLibSatelliteName_A "System.Private.CoreLib.resources"
+#define CoreLibSatelliteNameLen 32
+#define LegacyCoreLibName_A "mscorlib"
+#else // !defined(FEATURE_CORECLR)
+#define CoreLibName_W W("mscorlib")
+#define CoreLibName_IL_W W("mscorlib.dll")
+#define CoreLibName_NI_W W("mscorlib.ni.dll")
+#define CoreLibName_TLB_W W("mscorlib.tlb")
+#define CoreLibName_A "mscorlib"
+#define CoreLibName_IL_A "mscorlib.dll"
+#define CoreLibName_NI_A "mscorlib.ni.dll"
+#define CoreLibName_TLB_A "mscorlib.tlb"
+#define CoreLibNameLen 8
+#define CoreLibSatelliteName_A "mscorlib.resources"
+#define CoreLibSatelliteNameLen 18
+#define LegacyCoreLibName_A "mscorlib"
+#endif // defined(FEATURE_CORECLR)
 
 class StringArrayList;
 
@@ -109,6 +131,17 @@ inline TADDR PCODEToPINSTR(PCODE pc)
     return ThumbCodeToDataPointer<TADDR,PCODE>(pc);
 #else
     return dac_cast<PCODE>(pc);
+#endif
+}
+
+// Convert from a PINSTR to the corresponding PCODE.  On many architectures this will be the identity function;
+// on ARM, this will raise the THUMB bit.
+inline PCODE PINSTRToPCODE(TADDR addr)
+{
+#ifdef _TARGET_ARM_
+    return DataPointerToThumbCode<PCODE,TADDR>(addr);
+#else
+    return dac_cast<PCODE>(addr);
 #endif
 }
 
@@ -191,12 +224,6 @@ typedef LPSTR   LPUTF8;
 #ifndef sizeofmember
 // Returns the size of a class or struct member.
 #define sizeofmember(c,m) (sizeof(((c*)0)->m))
-#endif
-
-#if defined(_MSC_VER) && _MSC_VER < 1900
-#define NOEXCEPT
-#else
-#define NOEXCEPT noexcept
 #endif
 
 //=--------------------------------------------------------------------------=
@@ -583,7 +610,7 @@ BOOL CLRFreeLibrary(HMODULE hModule);
 // Load a string using the resources for the current module.
 STDAPI UtilLoadStringRC(UINT iResouceID, __out_ecount (iMax) LPWSTR szBuffer, int iMax, int bQuiet=FALSE);
 
-#if ENABLE_DOWNLEVEL_FOR_NLS
+#if defined(ENABLE_DOWNLEVEL_FOR_NLS) || defined(FEATURE_USE_LCID)
 STDAPI UtilLoadStringRCEx(LCID lcid, UINT iResourceID, __out_ecount (iMax) LPWSTR szBuffer, int iMax, int bQuiet, int *pcwchUsed);
 #endif
 
@@ -1041,53 +1068,7 @@ inline int CountBits(int iNum)
     return (iBits);
 }
 
-//------------------------------------------------------------------------
-// BitPosition: Return the position of the single bit that is set in 'value'.
-//
-// Return Value:
-//    The position (0 is LSB) of bit that is set in 'value'
-//
-// Notes:
-//    'value' must have exactly one bit set.
-//    The algorithm is as follows:
-//    - PRIME is a prime bigger than sizeof(unsigned int), which is not of the
-//      form 2^n-1.
-//    - Taking the modulo of 'value' with this will produce a unique hash for all
-//      powers of 2 (which is what "value" is).
-//    - Entries in hashTable[] which are -1 should never be used. There
-//      should be PRIME-8*sizeof(value) entries which are -1 .
-//
-inline
-unsigned            BitPosition(unsigned value)
-{
-    _ASSERTE((value != 0) && ((value & (value-1)) == 0));
-#ifndef _TARGET_AMD64_
-    const unsigned PRIME = 37;
-
-    static const char hashTable[PRIME] =
-    {
-        -1,  0,  1, 26,  2, 23, 27, -1,  3, 16,
-        24, 30, 28, 11, -1, 13,  4,  7, 17, -1,
-        25, 22, 31, 15, 29, 10, 12,  6, -1, 21,
-        14,  9,  5, 20,  8, 19, 18
-    };
-
-    _ASSERTE(PRIME >= 8*sizeof(value));
-    _ASSERTE(sizeof(hashTable) == PRIME);
-
-
-    unsigned hash   = value % PRIME;
-    unsigned index  = hashTable[hash];
-    _ASSERTE(index != (unsigned char)-1);
-#else
-    // not enabled for x86 because BSF is extremely slow on Atom
-    // (15 clock cycles vs 1-3 on any other Intel CPU post-P4)
-    DWORD index;
-    BitScanForward(&index, value);
-#endif
-    return index;
-}
-
+#include "bitposition.h"
 
 // Used to remove trailing zeros from Decimal types.
 // NOTE: Assumes hi32 bits are empty (used for conversions from Cy->Dec)
@@ -1590,11 +1571,6 @@ public:
 
 #if !defined(FEATURE_REDHAWK)&& !defined(FEATURE_PAL)
 private:	// apis types
-#if !defined(FEATURE_CORESYSTEM)
-    //GetNumaProcessorNode()
-    typedef BOOL
-    (WINAPI *PGNPN)(UCHAR, PUCHAR);
-#endif
 
     //GetNumaHighestNodeNumber()
     typedef BOOL
@@ -1604,21 +1580,14 @@ private:	// apis types
     (WINAPI *PVAExN)(HANDLE,LPVOID,SIZE_T,DWORD,DWORD,DWORD);
 
     // api pfns and members
-#if !defined(FEATURE_CORESYSTEM)
-    static PGNPN    m_pGetNumaProcessorNode;
-#endif
     static PGNHNN   m_pGetNumaHighestNodeNumber;
     static PVAExN   m_pVirtualAllocExNuma;
 
 public: 	// functions
-#if !defined(FEATURE_CORESYSTEM)
-    static BOOL GetNumaProcessorNode(UCHAR proc_no, PUCHAR node_no);
-#endif
 
     static LPVOID VirtualAllocExNuma(HANDLE hProc, LPVOID lpAddr, SIZE_T size,
                                      DWORD allocType, DWORD prot, DWORD node);
 
-#if !defined(FEATURE_CORECLR) || defined(FEATURE_CORESYSTEM)
 private:
     //GetNumaProcessorNodeEx()
     typedef BOOL
@@ -1627,7 +1596,6 @@ private:
 
 public:
     static BOOL GetNumaProcessorNodeEx(PPROCESSOR_NUMBER proc_no, PUSHORT node_no);
-#endif
 #endif
 };
 
@@ -1680,7 +1648,6 @@ private:
     //GetThreadGroupAffinity()
     typedef BOOL
     (WINAPI *PGTGA)(HANDLE, GROUP_AFFINITY *);
-#if !defined(FEATURE_CORESYSTEM) && !defined(FEATURE_CORECLR)
     //GetCurrentProcessorNumberEx()
     typedef void
     (WINAPI *PGCPNEx)(PROCESSOR_NUMBER *);
@@ -1690,16 +1657,12 @@ private:
     //NtQuerySystemInformationEx()
     //typedef int
     //(WINAPI *PNTQSIEx)(SYSTEM_INFORMATION_CLASS, PULONG, ULONG, PVOID, ULONG, PULONG);
-#endif
-
     static PGLPIEx m_pGetLogicalProcessorInformationEx;
     static PSTGA   m_pSetThreadGroupAffinity;
     static PGTGA   m_pGetThreadGroupAffinity;
-#if !defined(FEATURE_CORESYSTEM) && !defined(FEATURE_CORECLR)
     static PGCPNEx m_pGetCurrentProcessorNumberEx;
     static PGST    m_pGetSystemTimes;
     //static PNTQSIEx m_pNtQuerySystemInformationEx;
-#endif
 
 public:
     static BOOL GetLogicalProcessorInformationEx(DWORD relationship,
@@ -1707,11 +1670,9 @@ public:
     static BOOL SetThreadGroupAffinity(HANDLE h,
 		    GROUP_AFFINITY *groupAffinity, GROUP_AFFINITY *previousGroupAffinity);
     static BOOL GetThreadGroupAffinity(HANDLE h, GROUP_AFFINITY *groupAffinity);
-#if !defined(FEATURE_CORESYSTEM) && !defined(FEATURE_CORECLR)
     static BOOL GetSystemTimes(FILETIME *idleTime, FILETIME *kernelTime, FILETIME *userTime);
     static void ChooseCPUGroupAffinity(GROUP_AFFINITY *gf);
     static void ClearCPUGroupAffinity(GROUP_AFFINITY *gf);
-#endif
 #endif
 };
 
@@ -3439,7 +3400,7 @@ public:
         m_iSize = iBuckets + 7;
     }
 
-    ~CClosedHashBase()
+    virtual ~CClosedHashBase()
     {
         WRAPPER_NO_CONTRACT;
         Clear();
@@ -4572,9 +4533,29 @@ void PutThumb2BlRel24(UINT16 * p, INT32 imm24);
 INT32 GetArm64Rel28(UINT32 * pCode);
 
 //*****************************************************************************
+//  Extract the PC-Relative page address from an adrp instruction
+//*****************************************************************************
+INT32 GetArm64Rel21(UINT32 * pCode);
+
+//*****************************************************************************
+//  Extract the page offset from an add instruction
+//*****************************************************************************
+INT32 GetArm64Rel12(UINT32 * pCode);
+
+//*****************************************************************************
 //  Deposit the PC-Relative offset 'imm28' into a b or bl instruction 
 //*****************************************************************************
 void PutArm64Rel28(UINT32 * pCode, INT32 imm28);
+
+//*****************************************************************************
+//  Deposit the PC-Relative page address 'imm21' into an adrp instruction
+//*****************************************************************************
+void PutArm64Rel21(UINT32 * pCode, INT32 imm21);
+
+//*****************************************************************************
+//  Deposit the page offset 'imm12' into an add instruction
+//*****************************************************************************
+void PutArm64Rel12(UINT32 * pCode, INT32 imm12);
 
 //*****************************************************************************
 // Returns whether the offset fits into bl instruction
@@ -4590,6 +4571,22 @@ inline bool FitsInThumb2BlRel24(INT32 imm24)
 inline bool FitsInRel28(INT32 val32)
 {
     return (val32 >= -0x08000000) && (val32 < 0x08000000);
+}
+
+//*****************************************************************************
+// Returns whether the offset fits into an Arm64 adrp instruction
+//*****************************************************************************
+inline bool FitsInRel21(INT32 val32)
+{
+    return (val32 >= 0) && (val32 <= 0x001FFFFF);
+}
+
+//*****************************************************************************
+// Returns whether the offset fits into an Arm64 add instruction
+//*****************************************************************************
+inline bool FitsInRel12(INT32 val32)
+{
+    return (val32 >= 0) && (val32 <= 0x00000FFF);
 }
 
 //*****************************************************************************
@@ -4711,7 +4708,7 @@ public:
 #endif // !FEATURE_PAL
 };
 
-#if !defined(DACCESS_COMPILE) && !defined(CLR_STANDALONE_BINDER)
+#if !defined(DACCESS_COMPILE)
 
 // check if current thread is a GC thread (concurrent or server)
 inline BOOL IsGCSpecialThread ()
@@ -4895,7 +4892,7 @@ inline BOOL IsStackWalkerThread()
     STATIC_CONTRACT_MODE_ANY;
     STATIC_CONTRACT_CANNOT_TAKE_LOCK;
 
-#if defined(DACCESS_COMPILE) || defined(CLR_STANDALONE_BINDER)
+#if defined(DACCESS_COMPILE)
     return FALSE;
 #else
     return ClrFlsGetValue (TlsIdx_StackWalkerWalkingThread) != NULL;
@@ -4910,13 +4907,13 @@ inline BOOL IsGCThread ()
     STATIC_CONTRACT_SUPPORTS_DAC;
     STATIC_CONTRACT_SO_TOLERANT;
 
-#if !defined(DACCESS_COMPILE) && !defined(CLR_STANDALONE_BINDER)
+#if !defined(DACCESS_COMPILE)
     return IsGCSpecialThread () || IsSuspendEEThread ();
 #else
     return FALSE;
 #endif
 }
-#ifndef CLR_STANDALONE_BINDER
+
 class ClrFlsThreadTypeSwitch
 {
 public:
@@ -5007,7 +5004,6 @@ private:
     PVOID m_PreviousValue;
     PredefinedTlsSlots m_slot;
 };
-#endif // !CLR_STANDALONE_BINDER
 
 //*********************************************************************************
 
@@ -5184,6 +5180,11 @@ template<class T> void DeleteExecutable(T *p)
 #endif // FEATURE_PAL
 
 INDEBUG(BOOL DbgIsExecutable(LPVOID lpMem, SIZE_T length);)
+
+BOOL NoGuiOnAssert();
+#ifdef _DEBUG
+VOID TerminateOnAssert();
+#endif // _DEBUG
 
 class HighCharHelper {
 public:
@@ -5764,5 +5765,7 @@ struct SpinConstants
 extern SpinConstants g_SpinConstants;
 
 // ======================================================================================
+
+void* __stdcall GetCLRFunction(LPCSTR FunctionName);
 
 #endif // __UtilCode_h__

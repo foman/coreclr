@@ -144,10 +144,14 @@ DEFINE_EXCEPTION(g_SystemNS,       BadImageFormatException,        true,
 
 DEFINE_EXCEPTION(g_SystemNS,           CannotUnloadAppDomainException, false,  COR_E_CANNOTUNLOADAPPDOMAIN)
 DEFINE_EXCEPTION(g_CodeContractsNS,    ContractException,              false,  COR_E_CODECONTRACTFAILED)
+
+#ifdef FEATURE_REMOTING
 DEFINE_EXCEPTION(g_SystemNS,           ContextMarshalException,        false,  COR_E_CONTEXTMARSHAL)
+#endif
+
 DEFINE_EXCEPTION(g_ReflectionNS,       CustomAttributeFormatException, false,  COR_E_CUSTOMATTRIBUTEFORMAT)
 
-#if defined(FEATURE_X509) || defined(FEATURE_CRYPTO) || defined(FEATURE_LEGACYNETCFCRYPTO)
+#if defined(FEATURE_X509) || defined(FEATURE_CRYPTO)
 DEFINE_EXCEPTION(g_CryptographyNS,     CryptographicException,         false,  CORSEC_E_CRYPTO)
 #endif // FEATURE_X509 || FEATURE_CRYPTO
 #ifndef FEATURE_CORECLR

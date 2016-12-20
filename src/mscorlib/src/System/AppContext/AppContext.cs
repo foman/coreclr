@@ -21,9 +21,6 @@ namespace System
 
         public static string BaseDirectory
         {
-#if FEATURE_CORECLR
-            [System.Security.SecuritySafeCritical]
-#endif
             get
             {
                 // The value of APP_CONTEXT_BASE_DIRECTORY key has to be a string and it is not allowed to be any other type. 
@@ -39,6 +36,53 @@ namespace System
                 // Forward the value that is set on the current domain.
                 return AppDomain.CurrentDomain.SetupInformation.TargetFrameworkName;
             }
+        }
+
+        public static object GetData(string name)
+        {
+            return AppDomain.CurrentDomain.GetData(name);
+        }
+
+        public static void SetData(string name, object data)
+        {
+            AppDomain.CurrentDomain.SetData(name, data);
+        }
+
+        public static event UnhandledExceptionEventHandler UnhandledException
+        {
+            add
+            {
+                AppDomain.CurrentDomain.UnhandledException += value;
+            }
+
+            remove
+            {
+                AppDomain.CurrentDomain.UnhandledException -= value;
+            }
+        }
+
+        public static event System.EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> FirstChanceException
+        {  
+            add  
+            {  
+                AppDomain.CurrentDomain.FirstChanceException += value;  
+            }  
+            remove  
+            {  
+                AppDomain.CurrentDomain.FirstChanceException -= value;  
+            }  
+        }  
+
+        public static event System.EventHandler ProcessExit
+        {  
+            add  
+            {  
+                AppDomain.CurrentDomain.ProcessExit += value;  
+            }  
+            remove  
+            {  
+                AppDomain.CurrentDomain.ProcessExit -= value;  
+            }  
         }
 
         #region Switch APIs
@@ -57,9 +101,9 @@ namespace System
         public static bool TryGetSwitch(string switchName, out bool isEnabled)
         {
             if (switchName == null)
-                throw new ArgumentNullException("switchName");
+                throw new ArgumentNullException(nameof(switchName));
             if (switchName.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), "switchName");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), nameof(switchName));
 
             // By default, the switch is not enabled.
             isEnabled = false;
@@ -153,9 +197,9 @@ namespace System
         public static void SetSwitch(string switchName, bool isEnabled)
         {
             if (switchName == null)
-                throw new ArgumentNullException("switchName");
+                throw new ArgumentNullException(nameof(switchName));
             if (switchName.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), "switchName");
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), nameof(switchName));
 
             SwitchValueState switchValue = (isEnabled ? SwitchValueState.HasTrueValue : SwitchValueState.HasFalseValue)
                                             | SwitchValueState.HasLookedForOverride;

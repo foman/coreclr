@@ -2061,11 +2061,6 @@ public:
     void Terminate();
     void Continue();
 
-#ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-    VOID InvokeLegacyNetCFHostPauseCallback();
-    VOID InvokeLegacyNetCFHostResumeCallback();
-#endif
-
     bool HandleIPCEvent(DebuggerIPCEvent* event);
 
     DebuggerModule * LookupOrCreateModule(VMPTR_DomainFile vmDomainFile);
@@ -3436,7 +3431,7 @@ public:
     BYTE                              *m_argData;
     MethodDesc                        *m_md;
     PCODE                              m_targetCodeAddr;
-    INT64                              m_result;
+    ARG_SLOT                           m_result[NUMBER_RETURNVALUE_SLOTS];
     TypeHandle                         m_resultType;
     SIZE_T                             m_arrayRank;
     FUNC_EVAL_ABORT_TYPE               m_aborting;          // Has an abort been requested, and what type.
@@ -3517,10 +3512,10 @@ public:
  * ------------------------------------------------------------------------ */
 
 class InteropSafe {};
-#define interopsafe (*(InteropSafe*)NULL)
+extern InteropSafe interopsafe;
 
 class InteropSafeExecutable {};
-#define interopsafeEXEC (*(InteropSafeExecutable*)NULL)
+extern InteropSafeExecutable interopsafeEXEC;
 
 #ifndef DACCESS_COMPILE
 inline void * __cdecl operator new(size_t n, const InteropSafe&)

@@ -49,20 +49,18 @@ namespace System {
         NoThrowOnInvalidTime      = 2
     };
 
-
     [Serializable]
     [System.Security.Permissions.HostProtection(MayLeakOnAbort = true)]
-    [TypeForwardedFrom("System.Core, Version=3.5.0.0, Culture=Neutral, PublicKeyToken=b77a5c561934e089")]
-    sealed public class TimeZoneInfo : IEquatable<TimeZoneInfo>, ISerializable, IDeserializationCallback {
-
+    sealed public class TimeZoneInfo : IEquatable<TimeZoneInfo>, ISerializable, IDeserializationCallback
+    {
         // ---- SECTION:  members supporting exposed properties -------------*
-        private String m_id;
-        private String m_displayName;
-        private String m_standardDisplayName;
-        private String m_daylightDisplayName;
-        private TimeSpan m_baseUtcOffset;
-        private Boolean m_supportsDaylightSavingTime;
-        private AdjustmentRule[] m_adjustmentRules;
+        private readonly String m_id;
+        private readonly String m_displayName;
+        private readonly String m_standardDisplayName;
+        private readonly String m_daylightDisplayName;
+        private readonly TimeSpan m_baseUtcOffset;
+        private readonly Boolean m_supportsDaylightSavingTime;
+        private readonly AdjustmentRule[] m_adjustmentRules;
 
         // ---- SECTION:  members for internal support ---------*
         private enum TimeZoneInfoResult {
@@ -113,6 +111,8 @@ namespace System {
         private const long c_ticksPerDay         = c_ticksPerHour * 24;
         private const long c_ticksPerDayRange    = c_ticksPerDay - c_ticksPerMillisecond;
 
+        private static readonly TimeZoneInfo s_utcTimeZone = CreateCustomTimeZone(c_utcId, TimeSpan.Zero, c_utcId, c_utcId);
+
         //
         // All cached data are encapsulated in a helper class to allow consistent view even when the data are refreshed using ClearCachedData()
         //
@@ -123,7 +123,6 @@ namespace System {
         class CachedData
         {
             private volatile TimeZoneInfo m_localTimeZone;
-            private volatile TimeZoneInfo m_utcTimeZone;
 
             private TimeZoneInfo CreateLocal()
             {
@@ -161,31 +160,6 @@ namespace System {
                 }
             }
 
-            private TimeZoneInfo CreateUtc()
-            {
-                lock (this)
-                {
-                    TimeZoneInfo timeZone = m_utcTimeZone;
-                    if (timeZone == null) {
-                        timeZone = CreateCustomTimeZone(c_utcId, TimeSpan.Zero, c_utcId, c_utcId);
-                        m_utcTimeZone = timeZone;
-                    }
-                    return timeZone;
-                }
-            }
-
-            public TimeZoneInfo Utc {
-                get {
-                    Contract.Ensures(Contract.Result<TimeZoneInfo>() != null);
-
-                    TimeZoneInfo timeZone = m_utcTimeZone;
-                    if (timeZone == null) {
-                        timeZone = CreateUtc();
-                    }
-                    return timeZone;
-                }
-            }     
-
             //
             // GetCorrespondingKind-
             //
@@ -213,7 +187,7 @@ namespace System {
                 // in this example.  Only when the user passes in TimeZoneInfo.Local or
                 // TimeZoneInfo.Utc to the ConvertTime(...) methods will this check succeed.
                 //
-                if ((object)timeZone == (object)m_utcTimeZone) {
+                if ((object)timeZone == (object)s_utcTimeZone) {
                     kind = DateTimeKind.Utc;
                 }
                 else if ((object)timeZone == (object)m_localTimeZone) {
@@ -231,7 +205,6 @@ namespace System {
             public bool m_allSystemTimeZonesRead;
 
 #if FEATURE_WIN32_REGISTRY
-            [System.Security.SecuritySafeCritical]
             private static TimeZoneInfo GetCurrentOneYearLocal() {
                 // load the data from the OS
                 TimeZoneInfo match;
@@ -317,23 +290,57 @@ namespace System {
             }
         }
 
+#if PLATFORM_UNIX
+        // The rules we use in Unix cares mostly about the start and end dates but doesnâ€™t fill the transition start and end info. 
+        // as the rules now is public, we should fill it properly so the caller doesnâ€™t have to know how we use it internally 
+        // and can use it as it is used in Windows
+
+        private AdjustmentRule[] GetFilledRules()
+        {
+            Debug.Assert(m_adjustmentRules != null, "m_adjustmentRules expected to be not null");
+            AdjustmentRule[] rules = new AdjustmentRule[m_adjustmentRules.Length];
+
+            for (int i = 0; i < m_adjustmentRules.Length; i++)
+            {
+                var rule = m_adjustmentRules[i];
+                var start = rule.DateStart.Kind == DateTimeKind.Utc ?
+                            new DateTime(TimeZoneInfo.ConvertTime(rule.DateStart, this).Ticks, DateTimeKind.Unspecified) :
+                            rule.DateStart;
+                var end = rule.DateEnd.Kind == DateTimeKind.Utc ?
+                            new DateTime(TimeZoneInfo.ConvertTime(rule.DateEnd, this).Ticks - 1, DateTimeKind.Unspecified) :
+                            rule.DateEnd;
+
+                var startTransition = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, start.Hour, start.Minute, start.Second), start.Month, start.Day);
+                var endTransition = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, end.Hour, end.Minute, end.Second), end.Month, end.Day);
+
+                rules[i] = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(start.Date, end.Date, rule.DaylightDelta, startTransition, endTransition);
+            }
+
+            return rules;
+        }
+#endif // PLATFORM_UNIX        
 
         // ---- SECTION: public methods --------------*
-
         //
         // GetAdjustmentRules -
         //
         // returns a cloned array of AdjustmentRule objects
         //
-        public AdjustmentRule [] GetAdjustmentRules() {
-            if (m_adjustmentRules == null) {
-                return new AdjustmentRule[0];
+        public AdjustmentRule [] GetAdjustmentRules()
+        {
+            if (m_adjustmentRules == null)
+            {
+                return Array.Empty<AdjustmentRule>();
             }
-            else {
-                return (AdjustmentRule[])m_adjustmentRules.Clone();
+            else
+            {
+#if PLATFORM_UNIX
+                return GetFilledRules(); 
+#else
+                return (AdjustmentRule[]) m_adjustmentRules.Clone();
+#endif // PLATFORM_UNIX        
             }
         }
-
 
         //
         // GetAmbiguousTimeOffsets -
@@ -343,7 +350,7 @@ namespace System {
         //
         public TimeSpan[] GetAmbiguousTimeOffsets(DateTimeOffset dateTimeOffset) {
             if (!SupportsDaylightSavingTime) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeOffsetIsNotAmbiguous"), "dateTimeOffset");
+                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeOffsetIsNotAmbiguous"), nameof(dateTimeOffset));
             }
             Contract.EndContractBlock();
 
@@ -352,12 +359,12 @@ namespace System {
             Boolean isAmbiguous = false;
             AdjustmentRule rule = GetAdjustmentRuleForAmbiguousOffsets(adjustedTime);
             if (rule != null && rule.HasDaylightSaving) {
-                DaylightTime daylightTime = GetDaylightTime(adjustedTime.Year, rule);
+                DaylightTimeStruct daylightTime = GetDaylightTime(adjustedTime.Year, rule);
                 isAmbiguous = GetIsAmbiguousTime(adjustedTime, rule, daylightTime);
             }
 
             if (!isAmbiguous) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeOffsetIsNotAmbiguous"), "dateTimeOffset");
+                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeOffsetIsNotAmbiguous"), nameof(dateTimeOffset));
             }
 
             // the passed in dateTime is ambiguous in this TimeZoneInfo instance
@@ -380,7 +387,7 @@ namespace System {
 
         public TimeSpan[] GetAmbiguousTimeOffsets(DateTime dateTime) {
             if (!SupportsDaylightSavingTime) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsNotAmbiguous"), "dateTime");
+                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsNotAmbiguous"), nameof(dateTime));
             }
             Contract.EndContractBlock();
 
@@ -391,7 +398,7 @@ namespace System {
             }
             else if (dateTime.Kind == DateTimeKind.Utc) {
                 CachedData cachedData = s_cachedData;
-                adjustedTime = TimeZoneInfo.ConvertTime(dateTime, cachedData.Utc, this, TimeZoneInfoOptions.None, cachedData);
+                adjustedTime = TimeZoneInfo.ConvertTime(dateTime, s_utcTimeZone, this, TimeZoneInfoOptions.None, cachedData);
             }
             else {
                 adjustedTime = dateTime;
@@ -400,12 +407,12 @@ namespace System {
             Boolean isAmbiguous = false;
             AdjustmentRule rule = GetAdjustmentRuleForAmbiguousOffsets(adjustedTime);
             if (rule != null && rule.HasDaylightSaving) {
-                DaylightTime daylightTime = GetDaylightTime(adjustedTime.Year, rule);
+                DaylightTimeStruct daylightTime = GetDaylightTime(adjustedTime.Year, rule);
                 isAmbiguous = GetIsAmbiguousTime(adjustedTime, rule, daylightTime);
             }
 
             if (!isAmbiguous) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsNotAmbiguous"), "dateTime");
+                throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsNotAmbiguous"), nameof(dateTime));
             }
 
             // the passed in dateTime is ambiguous in this TimeZoneInfo instance
@@ -489,7 +496,7 @@ namespace System {
                     //
                     // normal case of converting from Local to Utc and then getting the offset from the UTC DateTime
                     //
-                    DateTime adjustedTime = TimeZoneInfo.ConvertTime(dateTime, cachedData.Local, cachedData.Utc, flags);
+                    DateTime adjustedTime = TimeZoneInfo.ConvertTime(dateTime, cachedData.Local, s_utcTimeZone, flags);
                     return GetUtcOffsetFromUtc(adjustedTime, this);
                 }
 
@@ -556,7 +563,7 @@ namespace System {
             }
             else if (dateTime.Kind == DateTimeKind.Utc) {
                 CachedData cachedData = s_cachedData;
-                adjustedTime = TimeZoneInfo.ConvertTime(dateTime, cachedData.Utc, this, flags, cachedData);
+                adjustedTime = TimeZoneInfo.ConvertTime(dateTime, s_utcTimeZone, this, flags, cachedData);
             }
             else {
                 adjustedTime = dateTime;
@@ -564,7 +571,7 @@ namespace System {
 
             AdjustmentRule rule = GetAdjustmentRuleForTime(adjustedTime);
             if (rule != null && rule.HasDaylightSaving) {
-                DaylightTime daylightTime = GetDaylightTime(adjustedTime.Year, rule);
+                DaylightTimeStruct daylightTime = GetDaylightTime(adjustedTime.Year, rule);
                 return GetIsAmbiguousTime(adjustedTime, rule, daylightTime);
             }
             return false;
@@ -642,7 +649,7 @@ namespace System {
             //
             AdjustmentRule rule = GetAdjustmentRuleForTime(adjustedTime);
             if (rule != null && rule.HasDaylightSaving) {
-                DaylightTime daylightTime = GetDaylightTime(adjustedTime.Year, rule);
+                DaylightTimeStruct daylightTime = GetDaylightTime(adjustedTime.Year, rule);
                 return GetIsDaylightSavings(adjustedTime, rule, daylightTime, flags);
             }
             else {
@@ -666,7 +673,7 @@ namespace System {
                 AdjustmentRule rule = GetAdjustmentRuleForTime(dateTime);
 
                 if (rule != null && rule.HasDaylightSaving) {
-                    DaylightTime daylightTime = GetDaylightTime(dateTime.Year, rule);
+                    DaylightTimeStruct daylightTime = GetDaylightTime(dateTime.Year, rule);
                     isInvalid = GetIsInvalidTime(dateTime, rule, daylightTime);
                 }
                 else {
@@ -688,22 +695,25 @@ namespace System {
             s_cachedData = new CachedData();
         }
 
-#if FEATURE_WIN32_REGISTRY
         //
         // ConvertTimeBySystemTimeZoneId -
         //
         // Converts the value of a DateTime object from sourceTimeZone to destinationTimeZone
         //
-        static public DateTimeOffset ConvertTimeBySystemTimeZoneId(DateTimeOffset dateTimeOffset, String destinationTimeZoneId) {
+        static public DateTimeOffset ConvertTimeBySystemTimeZoneId(DateTimeOffset dateTimeOffset, String destinationTimeZoneId)
+        {
             return ConvertTime(dateTimeOffset, FindSystemTimeZoneById(destinationTimeZoneId));
         }
 
-        static public DateTime ConvertTimeBySystemTimeZoneId(DateTime dateTime, String destinationTimeZoneId) {
+        static public DateTime ConvertTimeBySystemTimeZoneId(DateTime dateTime, String destinationTimeZoneId)
+        {
             return ConvertTime(dateTime, FindSystemTimeZoneById(destinationTimeZoneId));
         }
 
-        static public DateTime ConvertTimeBySystemTimeZoneId(DateTime dateTime, String sourceTimeZoneId, String destinationTimeZoneId) {
-            if (dateTime.Kind == DateTimeKind.Local && String.Compare(sourceTimeZoneId, TimeZoneInfo.Local.Id, StringComparison.OrdinalIgnoreCase) == 0) {
+        static public DateTime ConvertTimeBySystemTimeZoneId(DateTime dateTime, String sourceTimeZoneId, String destinationTimeZoneId)
+        {
+            if (dateTime.Kind == DateTimeKind.Local && String.Compare(sourceTimeZoneId, TimeZoneInfo.Local.Id, StringComparison.OrdinalIgnoreCase) == 0)
+            {
                 // TimeZoneInfo.Local can be cleared by another thread calling TimeZoneInfo.ClearCachedData.
                 // Take snapshot of cached data to guarantee this method will not be impacted by the ClearCachedData call.
                 // Without the snapshot, there is a chance that ConvertTime will throw since 'source' won't
@@ -712,21 +722,21 @@ namespace System {
                 CachedData cachedData = s_cachedData;
                 return ConvertTime(dateTime, cachedData.Local, FindSystemTimeZoneById(destinationTimeZoneId), TimeZoneInfoOptions.None, cachedData);
             }    
-            else if (dateTime.Kind == DateTimeKind.Utc && String.Compare(sourceTimeZoneId, TimeZoneInfo.Utc.Id, StringComparison.OrdinalIgnoreCase) == 0) {
+            else if (dateTime.Kind == DateTimeKind.Utc && String.Compare(sourceTimeZoneId, TimeZoneInfo.Utc.Id, StringComparison.OrdinalIgnoreCase) == 0)
+            {
                 // TimeZoneInfo.Utc can be cleared by another thread calling TimeZoneInfo.ClearCachedData.
                 // Take snapshot of cached data to guarantee this method will not be impacted by the ClearCachedData call.
                 // Without the snapshot, there is a chance that ConvertTime will throw since 'source' won't
                 // be reference equal to the new TimeZoneInfo.Utc
                 //
                 CachedData cachedData = s_cachedData;
-                return ConvertTime(dateTime, cachedData.Utc, FindSystemTimeZoneById(destinationTimeZoneId), TimeZoneInfoOptions.None, cachedData);
+                return ConvertTime(dateTime, s_utcTimeZone, FindSystemTimeZoneById(destinationTimeZoneId), TimeZoneInfoOptions.None, cachedData);
             }
-            else {
+            else
+            {
                 return ConvertTime(dateTime, FindSystemTimeZoneById(sourceTimeZoneId), FindSystemTimeZoneById(destinationTimeZoneId));
             }
         }
-#endif // FEATURE_WIN32_REGISTRY
-
 
         //
         // ConvertTime -
@@ -736,7 +746,7 @@ namespace System {
 
         static public DateTimeOffset ConvertTime(DateTimeOffset dateTimeOffset, TimeZoneInfo destinationTimeZone) {
             if (destinationTimeZone == null) {
-                throw new ArgumentNullException("destinationTimeZone");
+                throw new ArgumentNullException(nameof(destinationTimeZone));
             }
 
             Contract.EndContractBlock();
@@ -760,7 +770,7 @@ namespace System {
 
         static public DateTime ConvertTime(DateTime dateTime, TimeZoneInfo destinationTimeZone) {
             if (destinationTimeZone == null) {
-                throw new ArgumentNullException("destinationTimeZone");
+                throw new ArgumentNullException(nameof(destinationTimeZone));
             }
             Contract.EndContractBlock();
 
@@ -770,7 +780,7 @@ namespace System {
             }
             CachedData cachedData = s_cachedData;
             if (dateTime.Kind == DateTimeKind.Utc) {
-                return ConvertTime(dateTime, cachedData.Utc, destinationTimeZone, TimeZoneInfoOptions.None, cachedData);
+                return ConvertTime(dateTime, s_utcTimeZone, destinationTimeZone, TimeZoneInfoOptions.None, cachedData);
             }
             else {
                 return ConvertTime(dateTime, cachedData.Local, destinationTimeZone, TimeZoneInfoOptions.None, cachedData);
@@ -788,17 +798,17 @@ namespace System {
 
         static private DateTime ConvertTime(DateTime dateTime, TimeZoneInfo sourceTimeZone, TimeZoneInfo destinationTimeZone, TimeZoneInfoOptions flags, CachedData cachedData) {
             if (sourceTimeZone == null) {
-                throw new ArgumentNullException("sourceTimeZone");
+                throw new ArgumentNullException(nameof(sourceTimeZone));
             }
 
             if (destinationTimeZone == null) {
-                throw new ArgumentNullException("destinationTimeZone");
+                throw new ArgumentNullException(nameof(destinationTimeZone));
             }
             Contract.EndContractBlock();
 
             DateTimeKind sourceKind = cachedData.GetCorrespondingKind(sourceTimeZone);
             if ( ((flags & TimeZoneInfoOptions.NoThrowOnInvalidTime) == 0) && (dateTime.Kind != DateTimeKind.Unspecified) && (dateTime.Kind != sourceKind) ) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_ConvertMismatch"), "sourceTimeZone");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_ConvertMismatch"), nameof(sourceTimeZone));
             }
 
             //
@@ -816,12 +826,12 @@ namespace System {
                 sourceOffset = sourceOffset + sourceRule.BaseUtcOffsetDelta;
                 if (sourceRule.HasDaylightSaving) {
                     Boolean sourceIsDaylightSavings = false;
-                    DaylightTime sourceDaylightTime = sourceTimeZone.GetDaylightTime(dateTime.Year, sourceRule);
+                    DaylightTimeStruct sourceDaylightTime = sourceTimeZone.GetDaylightTime(dateTime.Year, sourceRule);
 
                     // 'dateTime' might be in an invalid time range since it is in an AdjustmentRule
                     // period that supports DST 
                     if (((flags & TimeZoneInfoOptions.NoThrowOnInvalidTime) == 0) && GetIsInvalidTime(dateTime, sourceRule, sourceDaylightTime)) {
-                        throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsInvalid"), "dateTime");
+                        throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeIsInvalid"), nameof(dateTime));
                     }
                     sourceIsDaylightSavings = GetIsDaylightSavings(dateTime, sourceRule, sourceDaylightTime, flags);
 
@@ -864,7 +874,7 @@ namespace System {
         //
         static public DateTime ConvertTimeFromUtc(DateTime dateTime, TimeZoneInfo destinationTimeZone) {
             CachedData cachedData = s_cachedData;
-            return ConvertTime(dateTime, cachedData.Utc, destinationTimeZone, TimeZoneInfoOptions.None, cachedData);
+            return ConvertTime(dateTime, s_utcTimeZone, destinationTimeZone, TimeZoneInfoOptions.None, cachedData);
         }
 
 
@@ -878,7 +888,7 @@ namespace System {
                 return dateTime;
             }
             CachedData cachedData = s_cachedData;
-            return ConvertTime(dateTime, cachedData.Local, cachedData.Utc, TimeZoneInfoOptions.None, cachedData);
+            return ConvertTime(dateTime, cachedData.Local, s_utcTimeZone, TimeZoneInfoOptions.None, cachedData);
         }
 
 
@@ -887,12 +897,12 @@ namespace System {
                 return dateTime;
             }
             CachedData cachedData = s_cachedData;
-            return ConvertTime(dateTime, cachedData.Local, cachedData.Utc, flags, cachedData);
+            return ConvertTime(dateTime, cachedData.Local, s_utcTimeZone, flags, cachedData);
         }
 
         static public DateTime ConvertTimeToUtc(DateTime dateTime, TimeZoneInfo sourceTimeZone) {
             CachedData cachedData = s_cachedData;
-            return ConvertTime(dateTime, sourceTimeZone, cachedData.Utc, TimeZoneInfoOptions.None, cachedData);
+            return ConvertTime(dateTime, sourceTimeZone, s_utcTimeZone, TimeZoneInfoOptions.None, cachedData);
         }
 
 
@@ -907,11 +917,7 @@ namespace System {
         }
 
         public override bool Equals(object obj) {
-            TimeZoneInfo tzi = obj as TimeZoneInfo;            
-            if (null == tzi) {
-                return false;
-            }            
-            return Equals(tzi);
+            return Equals(obj as TimeZoneInfo);
         }
 
         //    
@@ -919,10 +925,10 @@ namespace System {
         //
         static public TimeZoneInfo FromSerializedString(string source) {
             if (source == null) {
-                throw new ArgumentNullException("source");
+                throw new ArgumentNullException(nameof(source));
             }
             if (source.Length == 0) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidSerializedString", source), "source");
+                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidSerializedString", source), nameof(source));
             }
             Contract.EndContractBlock();
 
@@ -934,7 +940,7 @@ namespace System {
         // GetHashCode -
         //
         public override int GetHashCode() {
-            return m_id.ToUpper(CultureInfo.InvariantCulture).GetHashCode();
+            return StringComparer.OrdinalIgnoreCase.GetHashCode(m_id);
         }
 
         //
@@ -950,7 +956,6 @@ namespace System {
         // <SecurityKernel Critical="True" Ring="0">
         // <Asserts Name="Imperative: System.Security.PermissionSet" />
         // </SecurityKernel>
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static public ReadOnlyCollection<TimeZoneInfo> GetSystemTimeZones() {
 
             CachedData cachedData = s_cachedData;
@@ -971,7 +976,12 @@ namespace System {
                     }
 
                     // sort and copy the TimeZoneInfo's into a ReadOnlyCollection for the user
-                    list.Sort(new TimeZoneInfoComparer());
+                    list.Sort((x, y) =>
+                    {
+                        // sort by BaseUtcOffset first and by DisplayName second - this is similar to the Windows Date/Time control panel
+                        int comparison = x.BaseUtcOffset.CompareTo(y.BaseUtcOffset);
+                        return comparison == 0 ? string.CompareOrdinal(x.DisplayName, y.DisplayName) : comparison;
+                    });
 
                     cachedData.m_readOnlySystemTimeZones = new ReadOnlyCollection<TimeZoneInfo>(list);
                 }          
@@ -979,26 +989,19 @@ namespace System {
             return cachedData.m_readOnlySystemTimeZones;
         }
 
-        [SecuritySafeCritical]
         private static void PopulateAllSystemTimeZones(CachedData cachedData)
         {
 #if FEATURE_WIN32_REGISTRY
             PermissionSet permSet = new PermissionSet(PermissionState.None);
             permSet.AddPermission(new RegistryPermission(RegistryPermissionAccess.Read, c_timeZonesRegistryHivePermissionList));
             permSet.Assert();
-            
-            using (RegistryKey reg = Registry.LocalMachine.OpenSubKey(
-                c_timeZonesRegistryHive,
-#if FEATURE_MACL
-                RegistryKeyPermissionCheck.Default,
-                System.Security.AccessControl.RegistryRights.ReadKey
-#else
-                false
-#endif
-                )) {
 
-                if (reg != null) {
-                    foreach (string keyName in reg.GetSubKeyNames()) {
+            using (RegistryKey reg = Registry.LocalMachine.OpenSubKey(c_timeZonesRegistryHive, false))
+            {
+                if (reg != null)
+                {
+                    foreach (string keyName in reg.GetSubKeyNames())
+                    {
                         TimeZoneInfo value;
                         Exception ex;
                         TryGetTimeZone(keyName, false, out value, out ex, cachedData);  // populate the cache
@@ -1023,7 +1026,7 @@ namespace System {
         //
         public Boolean HasSameRules(TimeZoneInfo other) {
             if (other == null) {
-                throw new ArgumentNullException("other");
+                throw new ArgumentNullException(nameof(other));
             }
 
             // check the utcOffset and supportsDaylightSavingTime members
@@ -1116,7 +1119,7 @@ namespace System {
         static public TimeZoneInfo Utc {
             get {
                 Contract.Ensures(Contract.Result<TimeZoneInfo>() != null);
-                return s_cachedData.Utc;
+                return s_utcTimeZone;
             }
         }
 
@@ -1127,8 +1130,7 @@ namespace System {
         //
         // private ctor
         //
-#if FEATURE_WIN32_REGISTRY 
-        [System.Security.SecurityCritical]  // auto-generated
+#if FEATURE_WIN32_REGISTRY
         private TimeZoneInfo(Win32Native.TimeZoneInformation zone, Boolean dstDisabled) {
             
             if (String.IsNullOrEmpty(zone.StandardName)) {
@@ -1260,16 +1262,13 @@ namespace System {
             Boolean adjustmentRulesSupportDst;
             ValidateTimeZoneInfo(id, baseUtcOffset, adjustmentRules, out adjustmentRulesSupportDst);
 
-            if (!disableDaylightSavingTime && adjustmentRules != null && adjustmentRules.Length > 0) {
-                m_adjustmentRules = (AdjustmentRule[])adjustmentRules.Clone();
-            }
-
             m_id = id;
             m_baseUtcOffset = baseUtcOffset;
             m_displayName = displayName;
             m_standardDisplayName = standardDisplayName;
             m_daylightDisplayName = (disableDaylightSavingTime ? null : daylightDisplayName);
             m_supportsDaylightSavingTime = adjustmentRulesSupportDst && !disableDaylightSavingTime;
+            m_adjustmentRules = adjustmentRules;
         }
 
         // -------- SECTION: factory methods -----------------*
@@ -1310,7 +1309,7 @@ namespace System {
                 String daylightDisplayName,
                 AdjustmentRule [] adjustmentRules) {
 
-            return new TimeZoneInfo(
+            return CreateCustomTimeZone(
                            id,
                            baseUtcOffset,
                            displayName,
@@ -1339,7 +1338,11 @@ namespace System {
                 AdjustmentRule [] adjustmentRules,
                 Boolean disableDaylightSavingTime) {
 
-           return new TimeZoneInfo(
+            if (!disableDaylightSavingTime && adjustmentRules?.Length > 0) {
+                adjustmentRules = (AdjustmentRule[])adjustmentRules.Clone();
+            }
+
+            return new TimeZoneInfo(
                            id,
                            baseUtcOffset,
                            displayName,
@@ -1353,7 +1356,6 @@ namespace System {
 
         // ----- SECTION: private serialization instance methods  ----------------*
 
-#if FEATURE_SERIALIZATION
         void IDeserializationCallback.OnDeserialization(Object sender) {
             try {
                 Boolean adjustmentRulesSupportDst;
@@ -1372,10 +1374,9 @@ namespace System {
         }
 
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info == null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
 
@@ -1391,7 +1392,7 @@ namespace System {
         
         TimeZoneInfo(SerializationInfo info, StreamingContext context) {
             if (info == null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
 
             m_id                  = (String)info.GetValue("Id", typeof(String));
@@ -1402,7 +1403,6 @@ namespace System {
             m_adjustmentRules     = (AdjustmentRule[])info.GetValue("AdjustmentRules", typeof(AdjustmentRule[]));
             m_supportsDaylightSavingTime = (Boolean)info.GetValue("SupportsDaylightSavingTime", typeof(Boolean));
         }
-#endif
 
 
 
@@ -1554,7 +1554,6 @@ namespace System {
         //
         // This check is only meant to be used for "Local".
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private Boolean CheckDaylightSavingTimeNotSupported(Win32Native.TimeZoneInformation timeZone) {
             return (   timeZone.DaylightDate.Year         == timeZone.StandardDate.Year
                     && timeZone.DaylightDate.Month        == timeZone.StandardDate.Month
@@ -1612,7 +1611,6 @@ namespace System {
         //
         // Converts a Win32Native.RegistryTimeZoneInformation (REG_TZI_FORMAT struct) to an AdjustmentRule
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private AdjustmentRule CreateAdjustmentRuleFromTimeZoneInformation(Win32Native.RegistryTimeZoneInformation timeZoneInformation, DateTime startDate, DateTime endDate, int defaultBaseUtcOffset) {
             AdjustmentRule rule;
             bool supportsDst = (timeZoneInformation.StandardDate.Month != 0);
@@ -1670,7 +1668,6 @@ namespace System {
         // Helper function that searches the registry for a time zone entry
         // that matches the TimeZoneInformation struct
         //
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static private String FindIdFromTimeZoneInformation(Win32Native.TimeZoneInformation timeZone, out Boolean dstDisabled) {
             dstDisabled = false;
 
@@ -1679,21 +1676,16 @@ namespace System {
                 permSet.AddPermission(new RegistryPermission(RegistryPermissionAccess.Read, c_timeZonesRegistryHivePermissionList));
                 permSet.Assert();
 
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                                  c_timeZonesRegistryHive,
-#if FEATURE_MACL
-                                  RegistryKeyPermissionCheck.Default,
-                                  System.Security.AccessControl.RegistryRights.ReadKey
-#else
-                                  false
-#endif
-                                  )) {
-
-                    if (key == null) {
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(c_timeZonesRegistryHive, false))
+                {
+                    if (key == null)
+                    {
                         return null;
                     }
-                    foreach (string keyName in key.GetSubKeyNames()) {
-                        if (TryCompareTimeZoneInformationToRegistry(timeZone, keyName, out dstDisabled)) {
+                    foreach (string keyName in key.GetSubKeyNames())
+                    {
+                        if (TryCompareTimeZoneInformationToRegistry(timeZone, keyName, out dstDisabled))
+                        {
                             return keyName;
                         }
                     }
@@ -1712,7 +1704,7 @@ namespace System {
         //
         // Helper function that returns a DaylightTime from a year and AdjustmentRule
         //
-        private DaylightTime GetDaylightTime(Int32 year, AdjustmentRule rule) {
+        private DaylightTimeStruct GetDaylightTime(Int32 year, AdjustmentRule rule) {
             TimeSpan delta = rule.DaylightDelta;
             DateTime startTime;
             DateTime endTime;
@@ -1733,7 +1725,7 @@ namespace System {
                 startTime = TransitionTimeToDateTime(year, rule.DaylightTransitionStart);
                 endTime = TransitionTimeToDateTime(year, rule.DaylightTransitionEnd);
             }
-            return new DaylightTime(startTime, endTime, delta);
+            return new DaylightTimeStruct(startTime, endTime, delta);
         }
 
         //
@@ -1742,7 +1734,7 @@ namespace System {
         // Helper function that checks if a given dateTime is in Daylight Saving Time (DST)
         // This function assumes the dateTime and AdjustmentRule are both in the same time zone
         //
-        static private Boolean GetIsDaylightSavings(DateTime time, AdjustmentRule rule, DaylightTime daylightTime, TimeZoneInfoOptions flags) {
+        static private Boolean GetIsDaylightSavings(DateTime time, AdjustmentRule rule, DaylightTimeStruct daylightTime, TimeZoneInfoOptions flags) {
             if (rule == null) {
                 return false;
             }
@@ -1837,7 +1829,7 @@ namespace System {
 
 
             // Get the daylight changes for the year of the specified time.
-            DaylightTime daylightTime = zone.GetDaylightTime(Year, rule);
+            DaylightTimeStruct daylightTime = zone.GetDaylightTime(Year, rule);
 
             // The start and end times represent the range of universal times that are in DST for that year.                
             // Within that there is an ambiguous hour, usually right at the end, but at the beginning in
@@ -1856,7 +1848,7 @@ namespace System {
             if (rule.IsStartDateMarkerForBeginningOfYear() && daylightTime.Start.Year > DateTime.MinValue.Year) {
                 AdjustmentRule previousYearRule = zone.GetAdjustmentRuleForTime(new DateTime(daylightTime.Start.Year - 1, 12, 31));
                 if (previousYearRule != null && previousYearRule.IsEndDateMarkerForEndOfYear()) {
-                    DaylightTime previousDaylightTime = zone.GetDaylightTime(daylightTime.Start.Year - 1, previousYearRule);
+                    DaylightTimeStruct previousDaylightTime = zone.GetDaylightTime(daylightTime.Start.Year - 1, previousYearRule);
                     startTime = previousDaylightTime.Start - utc - previousYearRule.BaseUtcOffsetDelta;
                     ignoreYearAdjustment = true;
                 } else {
@@ -1874,7 +1866,7 @@ namespace System {
                     if (nextYearRule.IsEndDateMarkerForEndOfYear()) {// next year end with daylight saving on too
                         endTime = new DateTime(daylightTime.End.Year + 1, 12, 31) - utc - nextYearRule.BaseUtcOffsetDelta - nextYearRule.DaylightDelta;
                     } else {
-                        DaylightTime nextdaylightTime = zone.GetDaylightTime(daylightTime.End.Year + 1, nextYearRule);
+                        DaylightTimeStruct nextdaylightTime = zone.GetDaylightTime(daylightTime.End.Year + 1, nextYearRule);
                         endTime = nextdaylightTime.End - utc - nextYearRule.BaseUtcOffsetDelta - nextYearRule.DaylightDelta;
                     }
                     ignoreYearAdjustment = true;
@@ -1980,7 +1972,7 @@ namespace System {
         // In this example, any DateTime values that fall into the [1AM - 1:59:59AM] range
         // are ambiguous; as it is unclear if these times are in Daylight Saving Time.
         //
-        static private Boolean GetIsAmbiguousTime(DateTime time, AdjustmentRule rule, DaylightTime daylightTime) {
+        static private Boolean GetIsAmbiguousTime(DateTime time, AdjustmentRule rule, DaylightTimeStruct daylightTime) {
             Boolean isAmbiguous = false;
             if (rule == null || rule.DaylightDelta == TimeSpan.Zero) {
                 return isAmbiguous;
@@ -2044,7 +2036,7 @@ namespace System {
         // A "time hole" is not limited to only occurring at the start of DST, and may occur at
         // the end of DST as well.
         //
-        static private Boolean GetIsInvalidTime(DateTime time, AdjustmentRule rule, DaylightTime daylightTime) {
+        static private Boolean GetIsInvalidTime(DateTime time, AdjustmentRule rule, DaylightTimeStruct daylightTime) {
             Boolean isInvalid = false;
             if (rule == null || rule.DaylightDelta == TimeSpan.Zero) {
                 return isInvalid;
@@ -2112,7 +2104,6 @@ namespace System {
         // assumes cachedData lock is taken
         //
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static private TimeZoneInfo GetLocalTimeZone(CachedData cachedData) {
 
 
@@ -2280,7 +2271,6 @@ namespace System {
         /// 3. Look for the data in GetTimeZoneDirectory()/localtime.
         /// 4. Use UTC if all else fails.
         /// </summary>
-        [SecurityCritical]
         private static bool TryGetLocalTzFile(out byte[] rawData, out string id)
         {
             rawData = null;
@@ -2360,7 +2350,6 @@ namespace System {
         /// Finds the time zone id by using 'readlink' on the path to see if tzFilePath is
         /// a symlink to a file 
         /// </summary>
-        [SecuritySafeCritical]
         private static string FindTimeZoneIdUsingReadLink(string tzFilePath)
         {
             string id = null;
@@ -2476,7 +2465,6 @@ namespace System {
         //
         // The TryGetLocalTzFile() call returns a Byte[] containing the compiled tzfile.
         // 
-        [System.Security.SecurityCritical]
         static private TimeZoneInfo GetLocalTimeZoneFromTzFile()
         {
             byte[] rawData;
@@ -2539,7 +2527,6 @@ namespace System {
         // try/catch logic for handling the TimeZoneInfo private constructor that takes
         // a Win32Native.TimeZoneInformation structure.
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private TimeZoneInfo GetLocalTimeZoneFromWin32Data(Win32Native.TimeZoneInformation timeZoneInformation, Boolean dstDisabled) {
             // first try to create the TimeZoneInfo with the original 'dstDisabled' flag
             try {
@@ -2582,7 +2569,7 @@ namespace System {
             }
 
             if (id == null) {
-                throw new ArgumentNullException("id");
+                throw new ArgumentNullException(nameof(id));
             }
             else if (!IsValidSystemTimeZoneId(id)) {
                 throw new TimeZoneNotFoundException(Environment.GetResourceString("TimeZoneNotFound_MissingData", id));
@@ -2606,7 +2593,7 @@ namespace System {
 #if FEATURE_WIN32_REGISTRY
                 throw new InvalidTimeZoneException(Environment.GetResourceString("InvalidTimeZone_InvalidRegistryData", id), e);
 #elif PLATFORM_UNIX
-                Contract.Assert(e is InvalidTimeZoneException,
+                Debug.Assert(e is InvalidTimeZoneException,
                     "TryGetTimeZone must create an InvalidTimeZoneException when it returns TimeZoneInfoResult.InvalidTimeZoneException");
                 throw e;
 #endif
@@ -2647,7 +2634,7 @@ namespace System {
             if (rule != null) {
                 baseOffset = baseOffset + rule.BaseUtcOffsetDelta;
                 if (rule.HasDaylightSaving) {
-                    DaylightTime daylightTime = zone.GetDaylightTime(time.Year, rule);
+                    DaylightTimeStruct daylightTime = zone.GetDaylightTime(time.Year, rule);
                     Boolean isDaylightSavings = GetIsDaylightSavings(time, rule, daylightTime, flags);
                     baseOffset += (isDaylightSavings ? rule.DaylightDelta : TimeSpan.Zero /* FUTURE: rule.StandardDelta */);
                 }
@@ -2719,7 +2706,7 @@ namespace System {
 
                 // As we get the associated rule using the adjusted targetTime, we should use the adjusted year (targetTime.Year) too as after adding the baseOffset, 
                 // sometimes the year value can change if the input datetime was very close to the beginning or the end of the year. Examples of such cases:
-                //      “Libya Standard Time” when used with the date 2011-12-31T23:59:59.9999999Z
+                //      Libya Standard Time when used with the date 2011-12-31T23:59:59.9999999Z
                 //      "W. Australia Standard Time" used with date 2005-12-31T23:59:00.0000000Z
                 DateTime targetTime = time + baseOffset;
                 year = targetTime.Year;
@@ -2745,7 +2732,6 @@ namespace System {
         // * when the argument 'readStart' is true the corresponding daylightTransitionTimeStart field is read
         // * when the argument 'readStart' is false the corresponding dayightTransitionTimeEnd field is read
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private bool TransitionTimeFromTimeZoneInformation(Win32Native.RegistryTimeZoneInformation timeZoneInformation, out TransitionTime transitionTime, bool readStartDate) {
             //
             // SYSTEMTIME - 
@@ -2856,7 +2842,7 @@ namespace System {
         //
         // Helper function that converts a year and TransitionTime into a DateTime
         //
-        static private DateTime TransitionTimeToDateTime(Int32 year, TransitionTime transitionTime) {
+        internal static DateTime TransitionTimeToDateTime(Int32 year, TransitionTime transitionTime) {
             DateTime value;
             DateTime timeOfDay = transitionTime.TimeOfDay;
 
@@ -2951,33 +2937,27 @@ namespace System {
         //
         // This method expects that its caller has already Asserted RegistryPermission.Read
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private bool TryCreateAdjustmentRules(string id, Win32Native.RegistryTimeZoneInformation defaultTimeZoneInformation, out AdjustmentRule[] rules, out Exception e, int defaultBaseUtcOffset) {
             e = null;
 
             try {
                 using (RegistryKey dynamicKey = Registry.LocalMachine.OpenSubKey(
-                                   String.Format(CultureInfo.InvariantCulture, "{0}\\{1}\\Dynamic DST",
-                                       c_timeZonesRegistryHive, id),
-#if FEATURE_MACL
-                                   RegistryKeyPermissionCheck.Default,
-                                   System.Security.AccessControl.RegistryRights.ReadKey
-#else
-                                   false
-#endif
-                                   )) {
+                    c_timeZonesRegistryHive + "\\" + id + "\\Dynamic DST",
+                    false)) {
                     if (dynamicKey == null) {
                         AdjustmentRule rule = CreateAdjustmentRuleFromTimeZoneInformation(
                                               defaultTimeZoneInformation, DateTime.MinValue.Date, DateTime.MaxValue.Date, defaultBaseUtcOffset);
 
-                        if (rule == null) {
+                        if (rule == null)
+                        {
                             rules = null;
                         }
-                        else {
+                        else
+                        {
                             rules = new AdjustmentRule[1];
                             rules[0] = rule;
                         }
-                        
+
                         return true;
                     }
 
@@ -2992,7 +2972,8 @@ namespace System {
                     Int32 first = (Int32)dynamicKey.GetValue(c_firstEntryValue, -1, RegistryValueOptions.None);
                     Int32 last = (Int32)dynamicKey.GetValue(c_lastEntryValue, -1, RegistryValueOptions.None);
 
-                    if (first == -1 || last == -1 || first > last) {
+                    if (first == -1 || last == -1 || first > last)
+                    {
                         rules = null;
                         return false;
                     }
@@ -3000,20 +2981,24 @@ namespace System {
                     // read the first year entry
                     Win32Native.RegistryTimeZoneInformation dtzi;
                     Byte[] regValue = dynamicKey.GetValue(first.ToString(CultureInfo.InvariantCulture), null, RegistryValueOptions.None) as Byte[];
-                    if (regValue == null || regValue.Length != c_regByteLength) {
+                    if (regValue == null || regValue.Length != c_regByteLength)
+                    {
                         rules = null;
                         return false;
                     }
                     dtzi = new Win32Native.RegistryTimeZoneInformation(regValue);
 
-                    if (first == last) {
+                    if (first == last)
+                    {
                         // there is just 1 dynamic rule for this time zone.
-                        AdjustmentRule rule =  CreateAdjustmentRuleFromTimeZoneInformation(dtzi, DateTime.MinValue.Date, DateTime.MaxValue.Date, defaultBaseUtcOffset);
+                        AdjustmentRule rule = CreateAdjustmentRuleFromTimeZoneInformation(dtzi, DateTime.MinValue.Date, DateTime.MaxValue.Date, defaultBaseUtcOffset);
 
-                        if (rule == null) {
+                        if (rule == null)
+                        {
                             rules = null;
                         }
-                        else {
+                        else
+                        {
                             rules = new AdjustmentRule[1];
                             rules[0] = rule;
                         }
@@ -3023,20 +3008,23 @@ namespace System {
 
                     List<AdjustmentRule> rulesList = new List<AdjustmentRule>(1);
 
-                     // there are more than 1 dynamic rules for this time zone.
+                    // there are more than 1 dynamic rules for this time zone.
                     AdjustmentRule firstRule = CreateAdjustmentRuleFromTimeZoneInformation(
                                               dtzi,
                                               DateTime.MinValue.Date,        // MinValue
                                               new DateTime(first, 12, 31),   // December 31, <FirstYear>
-                                              defaultBaseUtcOffset); 
-                    if (firstRule != null) {
+                                              defaultBaseUtcOffset);
+                    if (firstRule != null)
+                    {
                         rulesList.Add(firstRule);
                     }
 
                     // read the middle year entries
-                    for (Int32 i = first + 1; i < last; i++) {
+                    for (Int32 i = first + 1; i < last; i++)
+                    {
                         regValue = dynamicKey.GetValue(i.ToString(CultureInfo.InvariantCulture), null, RegistryValueOptions.None) as Byte[];
-                        if (regValue == null || regValue.Length != c_regByteLength) {
+                        if (regValue == null || regValue.Length != c_regByteLength)
+                        {
                             rules = null;
                             return false;
                         }
@@ -3046,14 +3034,16 @@ namespace System {
                                                   new DateTime(i, 1, 1),    // January  01, <Year>
                                                   new DateTime(i, 12, 31),  // December 31, <Year>
                                                   defaultBaseUtcOffset);
-                        if (middleRule != null) {
+                        if (middleRule != null)
+                        {
                             rulesList.Add(middleRule);
                         }
                     }
                     // read the last year entry
                     regValue = dynamicKey.GetValue(last.ToString(CultureInfo.InvariantCulture), null, RegistryValueOptions.None) as Byte[];
                     dtzi = new Win32Native.RegistryTimeZoneInformation(regValue);
-                    if (regValue == null || regValue.Length != c_regByteLength) {
+                    if (regValue == null || regValue.Length != c_regByteLength)
+                    {
                         rules = null;
                         return false;
                     }
@@ -3062,13 +3052,15 @@ namespace System {
                                               new DateTime(last, 1, 1),    // January  01, <LastYear>
                                               DateTime.MaxValue.Date,      // MaxValue
                                               defaultBaseUtcOffset);
-                    if (lastRule != null) {
+                    if (lastRule != null)
+                    {
                         rulesList.Add(lastRule);
                     }
 
                     // convert the ArrayList to an AdjustmentRule array
                     rules = rulesList.ToArray();
-                    if (rules != null && rules.Length == 0) {
+                    if (rules != null && rules.Length == 0)
+                    {
                         rules = null;
                     }
                 } // end of: using (RegistryKey dynamicKey...
@@ -3098,7 +3090,6 @@ namespace System {
         // Helper function that compares the StandardBias and StandardDate portion a
         // TimeZoneInformation struct to a time zone registry entry
         //
-        [System.Security.SecurityCritical]  // auto-generated
         static private Boolean TryCompareStandardDate(Win32Native.TimeZoneInformation timeZone, Win32Native.RegistryTimeZoneInformation registryTimeZoneInfo) {
             return timeZone.Bias                         == registryTimeZoneInfo.Bias
                    && timeZone.StandardBias              == registryTimeZoneInfo.StandardBias
@@ -3117,9 +3108,8 @@ namespace System {
         //
         // Helper function that compares a TimeZoneInformation struct to a time zone registry entry
         //
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        static private Boolean TryCompareTimeZoneInformationToRegistry(Win32Native.TimeZoneInformation timeZone, string id, out Boolean dstDisabled) {
-
+        static private Boolean TryCompareTimeZoneInformationToRegistry(Win32Native.TimeZoneInformation timeZone, string id, out Boolean dstDisabled)
+        {
             dstDisabled = false;
             try {
                 PermissionSet permSet = new PermissionSet(PermissionState.None);
@@ -3127,15 +3117,9 @@ namespace System {
                 permSet.Assert();
 
                 using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                                  String.Format(CultureInfo.InvariantCulture, "{0}\\{1}",
-                                      c_timeZonesRegistryHive, id),
-#if FEATURE_MACL
-                                  RegistryKeyPermissionCheck.Default,
-                                  System.Security.AccessControl.RegistryRights.ReadKey
-#else
-                                  false
-#endif
-                                  )) {
+                    c_timeZonesRegistryHive + "\\" + id,
+                    false))
+                {
 
                     if (key == null) {
                         return false;
@@ -3152,7 +3136,8 @@ namespace System {
                     //
                     Boolean result = TryCompareStandardDate(timeZone, registryTimeZoneInfo);
 
-                    if (!result) {
+                    if (!result)
+                    {
                         return false;
                     }
 
@@ -3161,14 +3146,14 @@ namespace System {
                              // since Daylight Saving Time is not "disabled", do a straight comparision between
                              // the Win32 API data and the registry data ...
                              //
-                             ||(   timeZone.DaylightBias              == registryTimeZoneInfo.DaylightBias
-                                && timeZone.DaylightDate.Year         == registryTimeZoneInfo.DaylightDate.Year
-                                && timeZone.DaylightDate.Month        == registryTimeZoneInfo.DaylightDate.Month
-                                && timeZone.DaylightDate.DayOfWeek    == registryTimeZoneInfo.DaylightDate.DayOfWeek
-                                && timeZone.DaylightDate.Day          == registryTimeZoneInfo.DaylightDate.Day
-                                && timeZone.DaylightDate.Hour         == registryTimeZoneInfo.DaylightDate.Hour
-                                && timeZone.DaylightDate.Minute       == registryTimeZoneInfo.DaylightDate.Minute
-                                && timeZone.DaylightDate.Second       == registryTimeZoneInfo.DaylightDate.Second
+                             || (timeZone.DaylightBias == registryTimeZoneInfo.DaylightBias
+                                && timeZone.DaylightDate.Year == registryTimeZoneInfo.DaylightDate.Year
+                                && timeZone.DaylightDate.Month == registryTimeZoneInfo.DaylightDate.Month
+                                && timeZone.DaylightDate.DayOfWeek == registryTimeZoneInfo.DaylightDate.DayOfWeek
+                                && timeZone.DaylightDate.Day == registryTimeZoneInfo.DaylightDate.Day
+                                && timeZone.DaylightDate.Hour == registryTimeZoneInfo.DaylightDate.Hour
+                                && timeZone.DaylightDate.Minute == registryTimeZoneInfo.DaylightDate.Minute
+                                && timeZone.DaylightDate.Second == registryTimeZoneInfo.DaylightDate.Second
                                 && timeZone.DaylightDate.Milliseconds == registryTimeZoneInfo.DaylightDate.Milliseconds);
 
                     // Finally compare the "StandardName" string value...
@@ -3176,11 +3161,12 @@ namespace System {
                     // we do not compare "DaylightName" as this TimeZoneInformation field may contain
                     // either "StandardName" or "DaylightName" depending on the time of year and current machine settings
                     //
-                    if (result) {
+                    if (result)
+                    {
                         String registryStandardName = key.GetValue(c_standardValue, String.Empty, RegistryValueOptions.None) as String;
                         result = String.Compare(registryStandardName, timeZone.StandardName, StringComparison.Ordinal) == 0;
                     }
-                    return result;  
+                    return result;
                 }  
             }
             finally {
@@ -3204,10 +3190,6 @@ namespace System {
         // <CallsSuppressUnmanagedCode Name="UnsafeNativeMethods.GetFileMUIPath(System.Int32,System.String,System.Text.StringBuilder,System.Int32&,System.Text.StringBuilder,System.Int32&,System.Int64&):System.Boolean" />
         // <ReferencesCritical Name="Method: TryGetLocalizedNameByNativeResource(String, Int32):String" Ring="1" />
         // </SecurityKernel>
-        [System.Security.SecuritySafeCritical]  // auto-generated
-#if !FEATURE_CORECLR
-        [FileIOPermissionAttribute(SecurityAction.Assert, AllLocalFiles = FileIOPermissionAccess.PathDiscovery)]
-#endif
         static private string TryGetLocalizedNameByMuiNativeResource(string resource) {
             if (String.IsNullOrEmpty(resource)) {
                 return String.Empty;
@@ -3277,7 +3259,6 @@ namespace System {
         // "resource.dll" is a language-specific resource DLL.
         // If the localized resource DLL exists, LoadString(resource) is returned.
         //
-        [SecurityCritical]
         static private string TryGetLocalizedNameByNativeResource(string filePath, int resource) {
             using (SafeLibraryHandle handle = 
                        UnsafeNativeMethods.LoadLibraryEx(filePath, IntPtr.Zero, Win32Native.LOAD_LIBRARY_AS_DATAFILE)) {
@@ -3308,9 +3289,6 @@ namespace System {
         //
         // This method expects that its caller has already Asserted RegistryPermission.Read
         //
-#if FEATURE_CORECLR
-        [System.Security.SecurityCritical] // auto-generated
-#endif
         static private Boolean TryGetLocalizedNamesByRegistryKey(RegistryKey key, out String displayName, out String standardName, out String daylightName) {
             displayName  = String.Empty;
             standardName = String.Empty;
@@ -3387,7 +3365,6 @@ namespace System {
         // * TZI,         REG_BINARY REG_TZI_FORMAT
         //                       See Win32Native.RegistryTimeZoneInformation
         //
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static private TimeZoneInfoResult TryGetTimeZoneByRegistryKey(string id, out TimeZoneInfo value, out Exception e) {
             e = null;
 
@@ -3397,15 +3374,8 @@ namespace System {
                 permSet.Assert();
 
                 using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                                  String.Format(CultureInfo.InvariantCulture, "{0}\\{1}",
-                                      c_timeZonesRegistryHive, id),
-#if FEATURE_MACL
-                                  RegistryKeyPermissionCheck.Default,
-                                  System.Security.AccessControl.RegistryRights.ReadKey
-#else
-                                  false
-#endif
-                                  )) {
+                    c_timeZonesRegistryHive + "\\" + id,
+                    false)) {
 
                     if (key == null) {
                         value = null;
@@ -4204,7 +4174,6 @@ namespace System {
 
         // Converts an array of bytes into an int - always using standard byte order (Big Endian)
         // per TZif file standard
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static private unsafe int TZif_ToInt32 (byte[]value, int startIndex) {
             fixed( byte * pbyte = &value[startIndex]) {
                 return (*pbyte << 24) | (*(pbyte + 1) << 16)  | (*(pbyte + 2) << 8) | (*(pbyte + 3));                        
@@ -4213,7 +4182,6 @@ namespace System {
 
         // Converts an array of bytes into a long - always using standard byte order (Big Endian)
         // per TZif file standard
-        [System.Security.SecuritySafeCritical]  // auto-generated
         static private unsafe long TZif_ToInt64(byte[] value, int startIndex)
         {
             fixed (byte* pbyte = &value[startIndex])
@@ -4386,20 +4354,20 @@ namespace System {
                 out Boolean adjustmentRulesSupportDst) {
 
             if (id == null) {
-                throw new ArgumentNullException("id");
+                throw new ArgumentNullException(nameof(id));
             }
 
             if (id.Length == 0) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidId", id), "id");
+                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidId", id), nameof(id));
             }
 
             if (UtcOffsetOutOfRange(baseUtcOffset)) {
 
-                throw new ArgumentOutOfRangeException("baseUtcOffset", Environment.GetResourceString("ArgumentOutOfRange_UtcOffset"));
+                throw new ArgumentOutOfRangeException(nameof(baseUtcOffset), Environment.GetResourceString("ArgumentOutOfRange_UtcOffset"));
             }
 
             if (baseUtcOffset.Ticks % TimeSpan.TicksPerMinute != 0) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_TimeSpanHasSeconds"), "baseUtcOffset");
+                throw new ArgumentException(Environment.GetResourceString("Argument_TimeSpanHasSeconds"), nameof(baseUtcOffset));
             }
             Contract.EndContractBlock();
 
@@ -4454,17 +4422,17 @@ namespace System {
 ============================================================*/
         [Serializable]
         [System.Security.Permissions.HostProtection(MayLeakOnAbort = true)]
-        [TypeForwardedFrom("System.Core, Version=3.5.0.0, Culture=Neutral, PublicKeyToken=b77a5c561934e089")]
-        sealed public class AdjustmentRule : IEquatable<AdjustmentRule>, ISerializable, IDeserializationCallback {
+        sealed public class AdjustmentRule : IEquatable<AdjustmentRule>, ISerializable, IDeserializationCallback
+            {
 
             // ---- SECTION:  members supporting exposed properties -------------*
-            private DateTime m_dateStart;
-            private DateTime m_dateEnd;
-            private TimeSpan m_daylightDelta;
-            private TransitionTime m_daylightTransitionStart;
-            private TransitionTime m_daylightTransitionEnd;
-            private TimeSpan m_baseUtcOffsetDelta;   // delta from the default Utc offset (utcOffset = defaultUtcOffset + m_baseUtcOffsetDelta)
-            private bool m_noDaylightTransitions;
+            private readonly DateTime m_dateStart;
+            private readonly DateTime m_dateEnd;
+            private readonly TimeSpan m_daylightDelta;
+            private readonly TransitionTime m_daylightTransitionStart;
+            private readonly TransitionTime m_daylightTransitionEnd;
+            private readonly TimeSpan m_baseUtcOffsetDelta;   // delta from the default Utc offset (utcOffset = defaultUtcOffset + m_baseUtcOffsetDelta)
+            private readonly bool m_noDaylightTransitions;
 
             // ---- SECTION: public properties --------------*
             public DateTime  DateStart {
@@ -4531,16 +4499,13 @@ namespace System {
 
             // IEquatable<AdjustmentRule>
             public bool Equals(AdjustmentRule other) {
-                bool equals = (other != null
-                     && this.m_dateStart == other.m_dateStart
-                     && this.m_dateEnd  == other.m_dateEnd
-                     && this.m_daylightDelta == other.m_daylightDelta
-                     && this.m_baseUtcOffsetDelta == other.m_baseUtcOffsetDelta);
-
-                equals = equals && this.m_daylightTransitionEnd.Equals(other.m_daylightTransitionEnd)
-                         && this.m_daylightTransitionStart.Equals(other.m_daylightTransitionStart);
-
-                return equals;
+                return other != null
+                    && m_dateStart == other.m_dateStart
+                    && m_dateEnd == other.m_dateEnd
+                    && m_daylightDelta == other.m_daylightDelta
+                    && m_baseUtcOffsetDelta == other.m_baseUtcOffsetDelta
+                    && m_daylightTransitionEnd.Equals(other.m_daylightTransitionEnd)
+                    && m_daylightTransitionStart.Equals(other.m_daylightTransitionStart);
             }
 
 
@@ -4552,33 +4517,29 @@ namespace System {
 
             // -------- SECTION: constructors -----------------*
 
-            private AdjustmentRule() { }
-
-
-            // -------- SECTION: factory methods -----------------*
-
-            static internal AdjustmentRule CreateAdjustmentRule(
-                             DateTime dateStart,
-                             DateTime dateEnd,
-                             TimeSpan daylightDelta,
-                             TransitionTime daylightTransitionStart,
-                             TransitionTime daylightTransitionEnd,
-                             bool noDaylightTransitions) {
+            private AdjustmentRule(
+                DateTime dateStart,
+                DateTime dateEnd,
+                TimeSpan daylightDelta,
+                TransitionTime daylightTransitionStart,
+                TransitionTime daylightTransitionEnd,
+                TimeSpan baseUtcOffsetDelta,
+                bool noDaylightTransitions)
+            {
                 ValidateAdjustmentRule(dateStart, dateEnd, daylightDelta,
                        daylightTransitionStart, daylightTransitionEnd, noDaylightTransitions);
 
-                AdjustmentRule rule = new AdjustmentRule();
-
-                rule.m_dateStart = dateStart;
-                rule.m_dateEnd   = dateEnd;
-                rule.m_daylightDelta = daylightDelta;
-                rule.m_daylightTransitionStart = daylightTransitionStart;
-                rule.m_daylightTransitionEnd = daylightTransitionEnd;
-                rule.m_baseUtcOffsetDelta = TimeSpan.Zero;
-                rule.m_noDaylightTransitions = noDaylightTransitions;
-
-                return rule;
+                m_dateStart = dateStart;
+                m_dateEnd = dateEnd;
+                m_daylightDelta = daylightDelta;
+                m_daylightTransitionStart = daylightTransitionStart;
+                m_daylightTransitionEnd = daylightTransitionEnd;
+                m_baseUtcOffsetDelta = baseUtcOffsetDelta;
+                m_noDaylightTransitions = noDaylightTransitions;
             }
+
+
+            // -------- SECTION: factory methods -----------------*
 
             static public AdjustmentRule CreateAdjustmentRule(
                              DateTime dateStart,
@@ -4587,8 +4548,14 @@ namespace System {
                              TransitionTime daylightTransitionStart,
                              TransitionTime daylightTransitionEnd)
             {
-                return CreateAdjustmentRule(dateStart, dateEnd, daylightDelta,
-                    daylightTransitionStart, daylightTransitionEnd, noDaylightTransitions: false);
+                return new AdjustmentRule(
+                    dateStart,
+                    dateEnd,
+                    daylightDelta,
+                    daylightTransitionStart,
+                    daylightTransitionEnd,
+                    baseUtcOffsetDelta: TimeSpan.Zero,
+                    noDaylightTransitions: false);
             }
 
             static internal AdjustmentRule CreateAdjustmentRule(
@@ -4598,12 +4565,16 @@ namespace System {
                              TransitionTime daylightTransitionStart,
                              TransitionTime daylightTransitionEnd,
                              TimeSpan baseUtcOffsetDelta,
-                             bool noDaylightTransitions) {
-                AdjustmentRule rule = CreateAdjustmentRule(dateStart, dateEnd, daylightDelta,
-                    daylightTransitionStart, daylightTransitionEnd, noDaylightTransitions);
-
-                rule.m_baseUtcOffsetDelta = baseUtcOffsetDelta;
-                return rule;
+                             bool noDaylightTransitions)
+            {
+                return new AdjustmentRule(
+                    dateStart,
+                    dateEnd,
+                    daylightDelta,
+                    daylightTransitionStart,
+                    daylightTransitionEnd,
+                    baseUtcOffsetDelta,
+                    noDaylightTransitions);
             }
 
             // ----- SECTION: internal utility methods ----------------*
@@ -4646,21 +4617,21 @@ namespace System {
 
 
                 if (dateStart.Kind != DateTimeKind.Unspecified && dateStart.Kind != DateTimeKind.Utc) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecifiedOrUtc"), "dateStart");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecifiedOrUtc"), nameof(dateStart));
                 }
 
                 if (dateEnd.Kind != DateTimeKind.Unspecified && dateEnd.Kind != DateTimeKind.Utc) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecifiedOrUtc"), "dateEnd");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecifiedOrUtc"), nameof(dateEnd));
                 }
 
                 if (daylightTransitionStart.Equals(daylightTransitionEnd) && !noDaylightTransitions) {
                     throw new ArgumentException(Environment.GetResourceString("Argument_TransitionTimesAreIdentical"),
-                                                "daylightTransitionEnd");
+                                                nameof(daylightTransitionEnd));
                 }
 
 
                 if (dateStart > dateEnd) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_OutOfOrderDateTimes"), "dateStart");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_OutOfOrderDateTimes"), nameof(dateStart));
                 }
 
                 // This cannot use UtcOffsetOutOfRange to account for the scenario where Samoa moved across the International Date Line,
@@ -4668,23 +4639,23 @@ namespace System {
                 // So when trying to describe DaylightDeltas for those times, the DaylightDelta needs 
                 // to be -23 (what it takes to go from UTC+13 to UTC-10)
                 if (daylightDelta.TotalHours < -23.0 || daylightDelta.TotalHours > 14.0) {
-                    throw new ArgumentOutOfRangeException("daylightDelta", daylightDelta,
+                    throw new ArgumentOutOfRangeException(nameof(daylightDelta), daylightDelta,
                         Environment.GetResourceString("ArgumentOutOfRange_UtcOffset"));
                 }
 
                 if (daylightDelta.Ticks % TimeSpan.TicksPerMinute != 0) {
                     throw new ArgumentException(Environment.GetResourceString("Argument_TimeSpanHasSeconds"),
-                        "daylightDelta");
+                        nameof(daylightDelta));
                 }
 
                 if (dateStart != DateTime.MinValue && dateStart.Kind == DateTimeKind.Unspecified && dateStart.TimeOfDay != TimeSpan.Zero) {
                     throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeHasTimeOfDay"),
-                        "dateStart");
+                        nameof(dateStart));
                 }
 
                 if (dateEnd != DateTime.MaxValue && dateEnd.Kind == DateTimeKind.Unspecified && dateEnd.TimeOfDay != TimeSpan.Zero) {
                     throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeHasTimeOfDay"),
-                        "dateEnd");
+                        nameof(dateEnd));
                 }
                 Contract.EndContractBlock();
             }
@@ -4693,7 +4664,6 @@ namespace System {
 
             // ----- SECTION: private serialization instance methods  ----------------*
 
-#if FEATURE_SERIALIZATION
             void IDeserializationCallback.OnDeserialization(Object sender) {
                 // OnDeserialization is called after each instance of this class is deserialized.
                 // This callback method performs AdjustmentRule validation after being deserialized.
@@ -4707,10 +4677,9 @@ namespace System {
                 }
             }
 
-            [System.Security.SecurityCritical]  // auto-generated_required
             void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context) {
                 if (info == null) {
-                    throw new ArgumentNullException("info");
+                    throw new ArgumentNullException(nameof(info));
                 }
                 Contract.EndContractBlock();
  
@@ -4725,7 +4694,7 @@ namespace System {
 
             AdjustmentRule(SerializationInfo info, StreamingContext context) {
                 if (info == null) {
-                    throw new ArgumentNullException("info");
+                    throw new ArgumentNullException(nameof(info));
                 }
 
                 m_dateStart           = (DateTime)info.GetValue("DateStart", typeof(DateTime));
@@ -4744,7 +4713,6 @@ namespace System {
                     m_noDaylightTransitions = (bool)o;
                 }
             }
-#endif
         }
 
 
@@ -4763,16 +4731,15 @@ namespace System {
 ============================================================*/
         [Serializable]
         [System.Security.Permissions.HostProtection(MayLeakOnAbort = true)]
-        [TypeForwardedFrom("System.Core, Version=3.5.0.0, Culture=Neutral, PublicKeyToken=b77a5c561934e089")]
-        public struct TransitionTime : IEquatable<TransitionTime>, ISerializable, IDeserializationCallback {
-
+        public struct TransitionTime : IEquatable<TransitionTime>, ISerializable, IDeserializationCallback
+        {
             // ---- SECTION:  members supporting exposed properties -------------*
-            private DateTime m_timeOfDay;
-            private byte m_month;
-            private byte m_week;
-            private byte m_day;
-            private DayOfWeek m_dayOfWeek;
-            private Boolean m_isFixedDateRule;
+            private readonly DateTime m_timeOfDay;
+            private readonly byte m_month;
+            private readonly byte m_week;
+            private readonly byte m_day;
+            private readonly DayOfWeek m_dayOfWeek;
+            private readonly Boolean m_isFixedDateRule;
 
 
             // ---- SECTION: public properties --------------*
@@ -4856,16 +4823,24 @@ namespace System {
 
 
             // -------- SECTION: constructors -----------------*
-/*
-            private TransitionTime() {           
-                m_timeOfDay = new DateTime();
-                m_month = 0;
-                m_week  = 0;
-                m_day   = 0;
-                m_dayOfWeek = DayOfWeek.Sunday;
-                m_isFixedDateRule = false;
+
+            private TransitionTime(
+                DateTime timeOfDay,
+                Int32 month,
+                Int32 week,
+                Int32 day,
+                DayOfWeek dayOfWeek,
+                Boolean isFixedDateRule)
+            {
+                ValidateTransitionTime(timeOfDay, month, week, day, dayOfWeek);
+
+                m_timeOfDay = timeOfDay;
+                m_month = (byte)month;
+                m_week = (byte)week;
+                m_day = (byte)day;
+                m_dayOfWeek = dayOfWeek;
+                m_isFixedDateRule = isFixedDateRule;
             }
-*/
 
 
             // -------- SECTION: factory methods -----------------*
@@ -4876,7 +4851,7 @@ namespace System {
                     Int32 month,
                     Int32 day) {
 
-                return CreateTransitionTime(timeOfDay, month, 1, day, DayOfWeek.Sunday, true);
+                return new TransitionTime(timeOfDay, month, 1, day, DayOfWeek.Sunday, isFixedDateRule: true);
             }
 
 
@@ -4886,29 +4861,7 @@ namespace System {
                     Int32 week,
                     DayOfWeek dayOfWeek) {
 
-                return CreateTransitionTime(timeOfDay, month, week, 1, dayOfWeek, false);
-            }
-
-
-            static private TransitionTime CreateTransitionTime(
-                    DateTime timeOfDay,
-                    Int32 month,
-                    Int32 week,
-                    Int32 day,
-                    DayOfWeek dayOfWeek,
-                    Boolean isFixedDateRule) {
-
-                ValidateTransitionTime(timeOfDay, month, week, day, dayOfWeek);
-                
-                TransitionTime t = new TransitionTime();
-                t.m_isFixedDateRule = isFixedDateRule;
-                t.m_timeOfDay = timeOfDay;
-                t.m_dayOfWeek = dayOfWeek;
-                t.m_day = (byte)day;
-                t.m_week = (byte)week;
-                t.m_month = (byte)month;
-
-                return t;
+                return new TransitionTime(timeOfDay, month, week, 1, dayOfWeek, isFixedDateRule: false);
             }
 
 
@@ -4927,37 +4880,36 @@ namespace System {
                     DayOfWeek dayOfWeek) { 
 
                 if (timeOfDay.Kind != DateTimeKind.Unspecified) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecified"), "timeOfDay");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeKindMustBeUnspecified"), nameof(timeOfDay));
                 }
 
                 // Month range 1-12
                 if (month < 1 || month > 12) {
-                    throw new ArgumentOutOfRangeException("month", Environment.GetResourceString("ArgumentOutOfRange_MonthParam"));
+                    throw new ArgumentOutOfRangeException(nameof(month), Environment.GetResourceString("ArgumentOutOfRange_MonthParam"));
                 }
 
                 // Day range 1-31
                 if (day < 1 || day > 31) {
-                    throw new ArgumentOutOfRangeException("day", Environment.GetResourceString("ArgumentOutOfRange_DayParam"));
+                    throw new ArgumentOutOfRangeException(nameof(day), Environment.GetResourceString("ArgumentOutOfRange_DayParam"));
                 }
 
                 // Week range 1-5
                 if (week < 1 || week > 5) {
-                    throw new ArgumentOutOfRangeException("week", Environment.GetResourceString("ArgumentOutOfRange_Week"));
+                    throw new ArgumentOutOfRangeException(nameof(week), Environment.GetResourceString("ArgumentOutOfRange_Week"));
                 }
 
                 // DayOfWeek range 0-6
                 if ((int)dayOfWeek < 0 || (int)dayOfWeek > 6) {
-                    throw new ArgumentOutOfRangeException("dayOfWeek", Environment.GetResourceString("ArgumentOutOfRange_DayOfWeek"));
+                    throw new ArgumentOutOfRangeException(nameof(dayOfWeek), Environment.GetResourceString("ArgumentOutOfRange_DayOfWeek"));
                 }
                 Contract.EndContractBlock();
 
                 if (timeOfDay.Year != 1 || timeOfDay.Month != 1 
                 || timeOfDay.Day != 1 || (timeOfDay.Ticks % TimeSpan.TicksPerMillisecond != 0)) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeHasTicks"), "timeOfDay");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_DateTimeHasTicks"), nameof(timeOfDay));
                 }
             }
 
-#if FEATURE_SERIALIZATION
             void IDeserializationCallback.OnDeserialization(Object sender) {
                 // OnDeserialization is called after each instance of this class is deserialized.
                 // This callback method performs TransitionTime validation after being deserialized.
@@ -4971,10 +4923,9 @@ namespace System {
             }
 
 
-            [System.Security.SecurityCritical]  // auto-generated_required
             void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context) {
                 if (info == null) {
-                    throw new ArgumentNullException("info");
+                    throw new ArgumentNullException(nameof(info));
                 }
                 Contract.EndContractBlock();
  
@@ -4988,7 +4939,7 @@ namespace System {
 
             TransitionTime(SerializationInfo info, StreamingContext context) {
                 if (info == null) {
-                    throw new ArgumentNullException("info");
+                    throw new ArgumentNullException(nameof(info));
                 }
 
                 m_timeOfDay       = (DateTime)info.GetValue("TimeOfDay", typeof(DateTime));
@@ -4998,7 +4949,6 @@ namespace System {
                 m_dayOfWeek       = (DayOfWeek)info.GetValue("DayOfWeek", typeof(DayOfWeek));
                 m_isFixedDateRule = (Boolean)info.GetValue("IsFixedDateRule", typeof(Boolean));
             }
-#endif
         }
 
 
@@ -5124,7 +5074,7 @@ namespace System {
                 AdjustmentRule[] rules = s.GetNextAdjustmentRuleArrayValue(false);
 
                 try { 
-                    return TimeZoneInfo.CreateCustomTimeZone(id, baseUtcOffset, displayName, standardName, daylightName, rules);
+                    return new TimeZoneInfo(id, baseUtcOffset, displayName, standardName, daylightName, rules, disableDaylightSavingTime: false);
                 }
                 catch (ArgumentException ex) {
                     throw new SerializationException(Environment.GetResourceString("Serialization_InvalidData"), ex);
@@ -5652,14 +5602,6 @@ namespace System {
             }
         }
 
-        private class TimeZoneInfoComparer : System.Collections.Generic.IComparer<TimeZoneInfo> {
-            int System.Collections.Generic.IComparer<TimeZoneInfo>.Compare(TimeZoneInfo x, TimeZoneInfo y)  {
-                // sort by BaseUtcOffset first and by DisplayName second - this is similar to the Windows Date/Time control panel
-                int comparison = x.BaseUtcOffset.CompareTo(y.BaseUtcOffset);
-                return comparison == 0 ? String.Compare(x.DisplayName, y.DisplayName, StringComparison.Ordinal) : comparison;
-            }
-        }
-
 #if PLATFORM_UNIX
         private struct TZifType
         {
@@ -5680,7 +5622,7 @@ namespace System {
             {
                 if (data == null || data.Length < index + c_len)
                 {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_TimeZoneInfoInvalidTZif"), "data");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_TimeZoneInfoInvalidTZif"), nameof(data));
                 }
                 Contract.EndContractBlock();
                 UtcOffset = new TimeSpan(0, 0, TZif_ToInt32(data, index + 00));
@@ -5704,7 +5646,7 @@ namespace System {
             {
                 if (data == null || data.Length < c_len)
                 {
-                    throw new ArgumentException("bad data", "data");
+                    throw new ArgumentException("bad data", nameof(data));
                 }
                 Contract.EndContractBlock();
 
@@ -5713,7 +5655,7 @@ namespace System {
                 if (Magic != 0x545A6966)
                 {
                     // 0x545A6966 = {0x54, 0x5A, 0x69, 0x66} = "TZif"
-                    throw new ArgumentException(Environment.GetResourceString("Argument_TimeZoneInfoBadTZif"), "data");
+                    throw new ArgumentException(Environment.GetResourceString("Argument_TimeZoneInfoBadTZif"), nameof(data));
                 }
 
                 byte version = data[index + 04];

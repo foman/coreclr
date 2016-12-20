@@ -13,7 +13,6 @@ namespace System
         internal static readonly string SwitchThrowExceptionIfDisposedCancellationTokenSource = "Switch.System.Threading.ThrowExceptionIfDisposedCancellationTokenSource";
         internal static readonly string SwitchPreserveEventListnerObjectIdentity = "Switch.System.Diagnostics.EventSource.PreserveEventListnerObjectIdentity";
 
-        
         // This is a partial method. Platforms can provide an implementation of it that will set override values
         // from whatever mechanism is available on that platform. If no implementation is provided, the compiler is going to remove the calls
         // to it from the code
@@ -40,6 +39,7 @@ namespace System
                             AppContext.DefineSwitchDefault(SwitchNoAsyncCurrentCulture, true);
                             AppContext.DefineSwitchDefault(SwitchThrowExceptionIfDisposedCancellationTokenSource, true);
                         }
+
                         break;
                     }
                 case "WindowsPhone":

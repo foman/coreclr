@@ -27,7 +27,7 @@
 #include "frames.h"
 #include "field.h"
 #include "winwrap.h"
-#include "gc.h"
+#include "gcheaputilities.h"
 #include "fcall.h"
 #include "invokeutil.h"
 #include "eeconfig.h"
@@ -1424,27 +1424,42 @@ FCIMPL5(VOID, Buffer::BlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, 
 
     MethodTable * pByteArrayMT = g_pByteArrayMT;
     _ASSERTE(pByteArrayMT != NULL);
-    if (src->GetMethodTable() == pByteArrayMT &&  dst->GetMethodTable() == pByteArrayMT)
+    
+    // Optimization: If src is a byte array, we can
+    // simply set srcLen to GetNumComponents, without having
+    // to call GetComponentSize or verifying GetArrayElementType
+    if (src->GetMethodTable() == pByteArrayMT)
     {
         srcLen = src->GetNumComponents();
-        dstLen = dst->GetNumComponents();
     }
     else
     {
-        // Size of the Arrays in bytes
         srcLen = src->GetNumComponents() * src->GetComponentSize();
-        dstLen = srcLen;
 
         // We only want to allow arrays of primitives, no Objects.
         const CorElementType srcET = src->GetArrayElementType();
         if (!CorTypeInfo::IsPrimitiveType_NoThrow(srcET))
             FCThrowArgumentVoid(W("src"), W("Arg_MustBePrimArray"));
-
-        if (src != dst) {
+    }
+    
+    // Optimization: If copying to/from the same array, then
+    // we know that dstLen and srcLen must be the same.
+    if (src == dst)
+    {
+        dstLen = srcLen;
+    }
+    else if (dst->GetMethodTable() == pByteArrayMT)
+    {
+        dstLen = dst->GetNumComponents();
+    }
+    else
+    {
+        dstLen = dst->GetNumComponents() * dst->GetComponentSize();
+        if (dst->GetMethodTable() != src->GetMethodTable())
+        {
             const CorElementType dstET = dst->GetArrayElementType();
             if (!CorTypeInfo::IsPrimitiveType_NoThrow(dstET))
                 FCThrowArgumentVoid(W("dest"), W("Arg_MustBePrimArray"));
-            dstLen = dst->GetNumComponents() * dst->GetComponentSize();
         }
     }
 
@@ -1463,7 +1478,11 @@ FCIMPL5(VOID, Buffer::BlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, 
     PTR_BYTE dstPtr = dst->GetDataPtr() + dstOffset;
 
     if ((srcPtr != dstPtr) && (count > 0)) {
+#if defined(_AMD64_) && !defined(PLATFORM_UNIX)
+        JIT_MemCpy(dstPtr, srcPtr, count);
+#else
         memmove(dstPtr, srcPtr, count);
+#endif
     }
 
     FC_GC_POLL();
@@ -1509,7 +1528,11 @@ FCIMPL5(VOID, Buffer::InternalBlockCopy, ArrayBase *src, int srcOffset, ArrayBas
     _ASSERTE(count >= 0);
 
     // Copy the data.
+#if defined(_AMD64_) && !defined(PLATFORM_UNIX)
+    JIT_MemCpy(dst->GetDataPtr() + dstOffset, src->GetDataPtr() + srcOffset, count);
+#else
     memmove(dst->GetDataPtr() + dstOffset, src->GetDataPtr() + srcOffset, count);
+#endif
 
     FC_GC_POLL();
 }
@@ -1623,7 +1646,7 @@ FCIMPL0(int, GCInterface::GetGcLatencyMode)
 
     FC_GC_POLL_NOT_NEEDED();
 
-    int result = (INT32)GCHeap::GetGCHeap()->GetGcLatencyMode();
+    int result = (INT32)GCHeapUtilities::GetGCHeap()->GetGcLatencyMode();
     return result;
 }
 FCIMPLEND
@@ -1634,7 +1657,7 @@ FCIMPL1(int, GCInterface::SetGcLatencyMode, int newLatencyMode)
 
     FC_GC_POLL_NOT_NEEDED();
     
-    return GCHeap::GetGCHeap()->SetGcLatencyMode(newLatencyMode);
+    return GCHeapUtilities::GetGCHeap()->SetGcLatencyMode(newLatencyMode);
 }
 FCIMPLEND
 
@@ -1644,7 +1667,7 @@ FCIMPL0(int, GCInterface::GetLOHCompactionMode)
 
     FC_GC_POLL_NOT_NEEDED();
 
-    int result = (INT32)GCHeap::GetGCHeap()->GetLOHCompactionMode();
+    int result = (INT32)GCHeapUtilities::GetGCHeap()->GetLOHCompactionMode();
     return result;
 }
 FCIMPLEND
@@ -1655,7 +1678,7 @@ FCIMPL1(void, GCInterface::SetLOHCompactionMode, int newLOHCompactionyMode)
 
     FC_GC_POLL_NOT_NEEDED();
     
-    GCHeap::GetGCHeap()->SetLOHCompactionMode(newLOHCompactionyMode);
+    GCHeapUtilities::GetGCHeap()->SetLOHCompactionMode(newLOHCompactionyMode);
 }
 FCIMPLEND
 
@@ -1666,7 +1689,7 @@ FCIMPL2(FC_BOOL_RET, GCInterface::RegisterForFullGCNotification, UINT32 gen2Perc
 
     FC_GC_POLL_NOT_NEEDED();
 
-    FC_RETURN_BOOL(GCHeap::GetGCHeap()->RegisterForFullGCNotification(gen2Percentage, lohPercentage));
+    FC_RETURN_BOOL(GCHeapUtilities::GetGCHeap()->RegisterForFullGCNotification(gen2Percentage, lohPercentage));
 }
 FCIMPLEND
 
@@ -1675,7 +1698,7 @@ FCIMPL0(FC_BOOL_RET, GCInterface::CancelFullGCNotification)
     FCALL_CONTRACT;
 
     FC_GC_POLL_NOT_NEEDED();
-    FC_RETURN_BOOL(GCHeap::GetGCHeap()->CancelFullGCNotification());
+    FC_RETURN_BOOL(GCHeapUtilities::GetGCHeap()->CancelFullGCNotification());
 }
 FCIMPLEND
 
@@ -1696,7 +1719,7 @@ FCIMPL1(int, GCInterface::WaitForFullGCApproach, int millisecondsTimeout)
     HELPER_METHOD_FRAME_BEGIN_RET_0();
 
     DWORD dwMilliseconds = ((millisecondsTimeout == -1) ? INFINITE : millisecondsTimeout);
-    result = GCHeap::GetGCHeap()->WaitForFullGCApproach(dwMilliseconds);
+    result = GCHeapUtilities::GetGCHeap()->WaitForFullGCApproach(dwMilliseconds);
 
     HELPER_METHOD_FRAME_END();
 
@@ -1721,7 +1744,7 @@ FCIMPL1(int, GCInterface::WaitForFullGCComplete, int millisecondsTimeout)
     HELPER_METHOD_FRAME_BEGIN_RET_0();
 
     DWORD dwMilliseconds = ((millisecondsTimeout == -1) ? INFINITE : millisecondsTimeout);
-    result = GCHeap::GetGCHeap()->WaitForFullGCComplete(dwMilliseconds);
+    result = GCHeapUtilities::GetGCHeap()->WaitForFullGCComplete(dwMilliseconds);
 
     HELPER_METHOD_FRAME_END();
 
@@ -1742,7 +1765,7 @@ FCIMPL1(int, GCInterface::GetGeneration, Object* objUNSAFE)
     if (objUNSAFE == NULL)
         FCThrowArgumentNull(W("obj"));
 
-    int result = (INT32)GCHeap::GetGCHeap()->WhichGeneration(objUNSAFE);
+    int result = (INT32)GCHeapUtilities::GetGCHeap()->WhichGeneration(objUNSAFE);
     FC_GC_POLL_RET();
     return result;
 }
@@ -1762,7 +1785,7 @@ FCIMPL2(int, GCInterface::CollectionCount, INT32 generation, INT32 getSpecialGCC
     _ASSERTE(generation >= 0);
 
     //We don't need to check the top end because the GC will take care of that.
-    int result = (INT32)GCHeap::GetGCHeap()->CollectionCount(generation, getSpecialGCCount);
+    int result = (INT32)GCHeapUtilities::GetGCHeap()->CollectionCount(generation, getSpecialGCCount);
     FC_GC_POLL_RET();
     return result;
 }
@@ -1778,7 +1801,7 @@ int QCALLTYPE GCInterface::StartNoGCRegion(INT64 totalSize, BOOL lohSizeKnown, I
 
     GCX_COOP();
 
-    retVal = GCHeap::GetGCHeap()->StartNoGCRegion((ULONGLONG)totalSize, 
+    retVal = GCHeapUtilities::GetGCHeap()->StartNoGCRegion((ULONGLONG)totalSize, 
                                                   lohSizeKnown,
                                                   (ULONGLONG)lohSize,
                                                   disallowFullBlockingGC);
@@ -1796,7 +1819,7 @@ int QCALLTYPE GCInterface::EndNoGCRegion()
 
     BEGIN_QCALL;
 
-    retVal = GCHeap::GetGCHeap()->EndNoGCRegion();
+    retVal = GCHeapUtilities::GetGCHeap()->EndNoGCRegion();
 
     END_QCALL;
 
@@ -1822,7 +1845,7 @@ FCIMPL1(int, GCInterface::GetGenerationWR, LPVOID handle)
     if (temp == NULL)
         COMPlusThrowArgumentNull(W("weak handle"));
 
-    iRetVal = (INT32)GCHeap::GetGCHeap()->WhichGeneration(OBJECTREFToObject(temp));
+    iRetVal = (INT32)GCHeapUtilities::GetGCHeap()->WhichGeneration(OBJECTREFToObject(temp));
 
     HELPER_METHOD_FRAME_END();
 
@@ -1845,7 +1868,7 @@ INT64 QCALLTYPE GCInterface::GetTotalMemory()
     BEGIN_QCALL;
 
     GCX_COOP();
-    iRetVal = (INT64) GCHeap::GetGCHeap()->GetTotalBytesInUse();
+    iRetVal = (INT64) GCHeapUtilities::GetGCHeap()->GetTotalBytesInUse();
 
     END_QCALL;
 
@@ -1870,7 +1893,7 @@ void QCALLTYPE GCInterface::Collect(INT32 generation, INT32 mode)
     //We don't need to check the top end because the GC will take care of that.
 
     GCX_COOP();
-    GCHeap::GetGCHeap()->GarbageCollect(generation, FALSE, mode);
+    GCHeapUtilities::GetGCHeap()->GarbageCollect(generation, FALSE, mode);
 
     END_QCALL;
 }
@@ -1903,10 +1926,28 @@ FCIMPL0(int, GCInterface::GetMaxGeneration)
 {
     FCALL_CONTRACT;
 
-    return(INT32)GCHeap::GetGCHeap()->GetMaxGeneration();
+    return(INT32)GCHeapUtilities::GetGCHeap()->GetMaxGeneration();
 }
 FCIMPLEND
 
+/*===============================GetAllocatedBytesForCurrentThread===============================
+**Action: Computes the allocated bytes so far on the current thread
+**Returns: The allocated bytes so far on the current thread
+**Arguments: None
+**Exceptions: None
+==============================================================================*/
+FCIMPL0(INT64, GCInterface::GetAllocatedBytesForCurrentThread)
+{
+    FCALL_CONTRACT;
+
+    INT64 currentAllocated = 0;
+    Thread *pThread = GetThread();
+    gc_alloc_context* ac = pThread->GetAllocContext();
+    currentAllocated = ac->alloc_bytes + ac->alloc_bytes_loh - (ac->alloc_limit - ac->alloc_ptr);
+
+    return currentAllocated;
+}
+FCIMPLEND
 
 /*==============================SuppressFinalize================================
 **Action: Indicate that an object's finalizer should not be run by the system
@@ -1923,7 +1964,7 @@ FCIMPL1(void, GCInterface::SuppressFinalize, Object *obj)
     if (!obj->GetMethodTable ()->HasFinalizer())
         return;
 
-    GCHeap::GetGCHeap()->SetFinalizationRun(obj);
+    GCHeapUtilities::GetGCHeap()->SetFinalizationRun(obj);
     FC_GC_POLL();
 }
 FCIMPLEND
@@ -1944,7 +1985,7 @@ FCIMPL1(void, GCInterface::ReRegisterForFinalize, Object *obj)
     if (obj->GetMethodTable()->HasFinalizer())
     {
         HELPER_METHOD_FRAME_BEGIN_1(obj);
-        GCHeap::GetGCHeap()->RegisterForFinalization(-1, obj);
+        GCHeapUtilities::GetGCHeap()->RegisterForFinalization(-1, obj);
         HELPER_METHOD_FRAME_END();
     }
 }
@@ -2046,7 +2087,7 @@ void GCInterface::AddMemoryPressure(UINT64 bytesAllocated)
             m_ulThreshold = (addMethod > multMethod) ? addMethod : multMethod;
             for (int i = 0; i <= 1; i++)
             {
-                if ((GCHeap::GetGCHeap()->CollectionCount(i) / RELATIVE_GC_RATIO) > GCHeap::GetGCHeap()->CollectionCount(i + 1))
+                if ((GCHeapUtilities::GetGCHeap()->CollectionCount(i) / RELATIVE_GC_RATIO) > GCHeapUtilities::GetGCHeap()->CollectionCount(i + 1))
                 {
                     gen_collect = i + 1;
                     break;
@@ -2056,14 +2097,14 @@ void GCInterface::AddMemoryPressure(UINT64 bytesAllocated)
 
         PREFIX_ASSUME(gen_collect <= 2);
 
-        if ((gen_collect == 0) || (m_gc_counts[gen_collect] == GCHeap::GetGCHeap()->CollectionCount(gen_collect)))
+        if ((gen_collect == 0) || (m_gc_counts[gen_collect] == GCHeapUtilities::GetGCHeap()->CollectionCount(gen_collect)))
         {
             GarbageCollectModeAny(gen_collect);
         }
 
         for (int i = 0; i < 3; i++) 
         {
-            m_gc_counts [i] = GCHeap::GetGCHeap()->CollectionCount(i);
+            m_gc_counts [i] = GCHeapUtilities::GetGCHeap()->CollectionCount(i);
         }
     }
 }
@@ -2082,7 +2123,7 @@ void GCInterface::CheckCollectionCount()
 {
     LIMITED_METHOD_CONTRACT;
 
-    GCHeap * pHeap = GCHeap::GetGCHeap();
+    IGCHeap * pHeap = GCHeapUtilities::GetGCHeap();
     
     if (m_gc_counts[2] != pHeap->CollectionCount(2))
     {
@@ -2167,7 +2208,7 @@ void GCInterface::NewAddMemoryPressure(UINT64 bytesAllocated)
         // If still over budget, check current managed heap size
         if (newMemValue >= budget)
         {
-            GCHeap *pGCHeap = GCHeap::GetGCHeap();
+            IGCHeap *pGCHeap = GCHeapUtilities::GetGCHeap();
             UINT64 heapOver3 = pGCHeap->GetCurrentObjSize() / 3;
 
             if (budget < heapOver3) // Max
@@ -2241,7 +2282,7 @@ void GCInterface::RemoveMemoryPressure(UINT64 bytesAllocated)
 
         for (int i = 0; i < 3; i++) 
         {
-            m_gc_counts [i] = GCHeap::GetGCHeap()->CollectionCount(i);
+            m_gc_counts [i] = GCHeapUtilities::GetGCHeap()->CollectionCount(i);
         }
     }
 }
@@ -2315,7 +2356,7 @@ NOINLINE void GCInterface::GarbageCollectModeAny(int generation)
     CONTRACTL_END;
 
     GCX_COOP();
-    GCHeap::GetGCHeap()->GarbageCollect(generation, FALSE, collection_non_blocking);
+    GCHeapUtilities::GetGCHeap()->GarbageCollect(generation, FALSE, collection_non_blocking);
 }
 
 //

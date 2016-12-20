@@ -2,25 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-/*============================================================
-**
-**
-** 
-**
-**
-** Purpose: For writing text to streams in a particular 
-** encoding.
-**
-**
-===========================================================*/
-using System;
 using System.Text;
-using System.Threading;
-using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Runtime.Versioning;
 using System.Security.Permissions;
 using System.Runtime.Serialization;
+using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -45,10 +31,8 @@ namespace System.IO
         private const int DefaultFileStreamBufferSize = 4096;
         private const int MinBufferSize = 128;
 
-        private const Int32 DontCopyOnWriteLineThreshold = 512;
-
         // Bit bucket - Null has no backing store. Non closable.
-        public new static readonly StreamWriter Null = new StreamWriter(Stream.Null, new UTF8Encoding(false, true), MinBufferSize, true);
+        public new static readonly StreamWriter Null = new StreamWriter(Stream.Null, UTF8NoBOM, MinBufferSize, true);
 
         private Stream stream;
         private Encoding encoding;
@@ -60,12 +44,6 @@ namespace System.IO
         private bool autoFlush;
         private bool haveWrittenPreamble;
         private bool closable;
-
-#if MDA_SUPPORTED
-        [NonSerialized] 
-        // For StreamWriterBufferedDataLost MDA
-        private MdaHelper mdaHelper;
-#endif
 
         // We don't guarantee thread safety on StreamWriter, but we should at 
         // least prevent users from trying to write anything while an Async
@@ -93,20 +71,9 @@ namespace System.IO
         // Even Close() will hit the exception as it would try to flush the unwritten data. 
         // Maybe we can add a DiscardBufferedData() method to get out of such situation (like 
         // StreamReader though for different reason). Either way, the buffered data will be lost!
-        private static volatile Encoding _UTF8NoBOM;
-        
         internal static Encoding UTF8NoBOM {
             [FriendAccessAllowed]
-            get { 
-                if (_UTF8NoBOM == null) {
-                    // No need for double lock - we just want to avoid extra
-                    // allocations in the common case.
-                    UTF8Encoding noBOM = new UTF8Encoding(false, true);
-                    Thread.MemoryBarrier();
-                    _UTF8NoBOM = noBOM;
-                }
-                return _UTF8NoBOM;
-            }
+            get { return EncodingCache.UTF8NoBOM; }
         }
                 
 
@@ -133,10 +100,10 @@ namespace System.IO
             : base(null) // Ask for CurrentCulture all the time
         {
             if (stream == null || encoding == null)
-                throw new ArgumentNullException((stream == null ? "stream" : "encoding"));
+                throw new ArgumentNullException((stream == null ? nameof(stream) : nameof(encoding)));
             if (!stream.CanWrite)
                 throw new ArgumentException(Environment.GetResourceString("Argument_StreamNotWritable"));
-            if (bufferSize <= 0) throw new ArgumentOutOfRangeException("bufferSize", Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
+            if (bufferSize <= 0) throw new ArgumentOutOfRangeException(nameof(bufferSize), Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             Contract.EndContractBlock();
 
             Init(stream, encoding, bufferSize, leaveOpen);
@@ -154,28 +121,23 @@ namespace System.IO
             : this(path, append, encoding, DefaultBufferSize) {
         }
 
-        [System.Security.SecuritySafeCritical]
-        public StreamWriter(String path, bool append, Encoding encoding, int bufferSize): this(path, append, encoding, bufferSize, true) { 
-        }
-
-        [System.Security.SecurityCritical]  
-        internal StreamWriter(String path, bool append, Encoding encoding, int bufferSize, bool checkHost)
+        public StreamWriter(String path, bool append, Encoding encoding, int bufferSize)
             : base(null)
-        { // Ask for CurrentCulture all the time
+        {
+            // Ask for CurrentCulture all the time
             if (path == null)
-                throw new ArgumentNullException("path");
+                throw new ArgumentNullException(nameof(path));
             if (encoding == null)
-                throw new ArgumentNullException("encoding");
+                throw new ArgumentNullException(nameof(encoding));
             if (path.Length == 0)
                 throw new ArgumentException(Environment.GetResourceString("Argument_EmptyPath"));
-            if (bufferSize <= 0) throw new ArgumentOutOfRangeException("bufferSize", Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
+            if (bufferSize <= 0) throw new ArgumentOutOfRangeException(nameof(bufferSize), Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             Contract.EndContractBlock();
 
-            Stream stream = CreateFile(path, append, checkHost);
+            Stream stream = CreateFile(path, append);
             Init(stream, encoding, bufferSize, false);
         }
 
-        [System.Security.SecuritySafeCritical]
         private void Init(Stream streamArg, Encoding encodingArg, int bufferSize, bool shouldLeaveOpen)
         {
             this.stream = streamArg;
@@ -190,21 +152,12 @@ namespace System.IO
             if (stream.CanSeek && stream.Position > 0)
                 haveWrittenPreamble = true;
             closable = !shouldLeaveOpen;
-#if MDA_SUPPORTED
-            if (Mda.StreamWriterBufferedDataLost.Enabled) {
-                String callstack = null;
-                if (Mda.StreamWriterBufferedDataLost.CaptureAllocatedCallStack)
-                    callstack = Environment.GetStackTrace(null, false);
-                mdaHelper = new MdaHelper(this, callstack);
-            }
-#endif
         }
 
-        [System.Security.SecurityCritical]  
-        private static Stream CreateFile(String path, bool append, bool checkHost) {
+        private static Stream CreateFile(String path, bool append) {
             FileMode mode = append? FileMode.Append: FileMode.Create;
             FileStream f = new FileStream(path, mode, FileAccess.Write, FileShare.Read,
-                DefaultFileStreamBufferSize, FileOptions.SequentialScan, Path.GetFileName(path), false, false, checkHost);
+                DefaultFileStreamBufferSize, FileOptions.SequentialScan, Path.GetFileName(path), false, false);
             return f;
         }
 
@@ -221,16 +174,11 @@ namespace System.IO
                 // is generally the right thing to do.
                 if (stream != null) {
                     // Note: flush on the underlying stream can throw (ex., low disk space)
-                    if (disposing || (LeaveOpen && stream is __ConsoleStream))
+                    if (disposing)
                     {
                         CheckAsyncTaskInProgress();
 
                         Flush(true, true);
-#if MDA_SUPPORTED
-                        // Disable buffered data loss mda
-                        if (mdaHelper != null)
-                            GC.SuppressFinalize(mdaHelper);
-#endif
                     }
                 }
             }
@@ -276,7 +224,7 @@ namespace System.IO
                 __Error.WriterClosed();
 
             // Perf boost for Flush on non-dirty writers.
-            if (charPos==0 && ((!flushStream && !flushEncoder) || CompatibilitySwitches.IsAppEarlierThanWindowsPhone8))
+            if (charPos==0 && (!flushStream && !flushEncoder))
                 return;
 
             if (!haveWrittenPreamble) {
@@ -350,7 +298,7 @@ namespace System.IO
                 if (charPos == charLen) Flush(false, false);
                 int n = charLen - charPos;
                 if (n > count) n = count;
-                Contract.Assert(n > 0, "StreamWriter::Write(char[]) isn't making progress!  This is most likely a race condition in user code.");
+                Debug.Assert(n > 0, "StreamWriter::Write(char[]) isn't making progress!  This is most likely a race condition in user code.");
                 Buffer.InternalBlockCopy(buffer, index * sizeof(char), charBuffer, charPos * sizeof(char), n * sizeof(char));
                 charPos += n;
                 index += n;
@@ -361,11 +309,11 @@ namespace System.IO
 
         public override void Write(char[] buffer, int index, int count) {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0)
-                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -376,7 +324,7 @@ namespace System.IO
                 if (charPos == charLen) Flush(false, false);
                 int n = charLen - charPos;
                 if (n > count) n = count;
-                Contract.Assert(n > 0, "StreamWriter::Write(char[], int, int) isn't making progress!  This is most likely a race condition in user code.");
+                Debug.Assert(n > 0, "StreamWriter::Write(char[], int, int) isn't making progress!  This is most likely a race condition in user code.");
                 Buffer.InternalBlockCopy(buffer, index * sizeof(char), charBuffer, charPos * sizeof(char), n * sizeof(char));
                 charPos += n;
                 index += n;
@@ -398,7 +346,7 @@ namespace System.IO
                     if (charPos == charLen) Flush(false, false);
                     int n = charLen - charPos;
                     if (n > count) n = count;
-                    Contract.Assert(n > 0, "StreamWriter::Write(String) isn't making progress!  This is most likely a race condition in user code.");
+                    Debug.Assert(n > 0, "StreamWriter::Write(String) isn't making progress!  This is most likely a race condition in user code.");
                     value.CopyTo(index, charBuffer, charPos, n);
                     charPos += n;
                     index += n;
@@ -409,7 +357,6 @@ namespace System.IO
         }
 
         #region Task based Async APIs
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteAsync(char value)
         {
@@ -440,7 +387,7 @@ namespace System.IO
         {            
             if (charPos == charLen) {
                 await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                Contract.Assert(_this.charPos == 0);
+                Debug.Assert(_this.charPos == 0);
                 charPos = 0;
             }
 
@@ -453,7 +400,7 @@ namespace System.IO
                 {
                     if (charPos == charLen) {                        
                         await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                        Contract.Assert(_this.charPos == 0);
+                        Debug.Assert(_this.charPos == 0);
                         charPos = 0;
                     }
 
@@ -464,14 +411,13 @@ namespace System.IO
 
             if (autoFlush) {
                 await _this.FlushAsyncInternal(true, false, charBuffer, charPos).ConfigureAwait(false);
-                Contract.Assert(_this.charPos == 0);
+                Debug.Assert(_this.charPos == 0);
                 charPos = 0;
             }
 
             _this.CharPos_Prop = charPos;
         }
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteAsync(String value)
         {
@@ -516,7 +462,7 @@ namespace System.IO
             {
                 if (charPos == charLen) {
                     await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                    Contract.Assert(_this.charPos == 0);
+                    Debug.Assert(_this.charPos == 0);
                     charPos = 0;
                 }
 
@@ -524,7 +470,7 @@ namespace System.IO
                 if (n > count)
                     n = count;
 
-                Contract.Assert(n > 0, "StreamWriter::Write(String) isn't making progress!  This is most likely a race condition in user code.");
+                Debug.Assert(n > 0, "StreamWriter::Write(String) isn't making progress!  This is most likely a race condition in user code.");
 
                 value.CopyTo(index, charBuffer, charPos, n);
 
@@ -539,7 +485,7 @@ namespace System.IO
                 {
                     if (charPos == charLen) {
                         await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                        Contract.Assert(_this.charPos == 0);
+                        Debug.Assert(_this.charPos == 0);
                         charPos = 0;
                     }
 
@@ -550,23 +496,22 @@ namespace System.IO
 
             if (autoFlush) {
                 await _this.FlushAsyncInternal(true, false, charBuffer, charPos).ConfigureAwait(false);
-                Contract.Assert(_this.charPos == 0);
+                Debug.Assert(_this.charPos == 0);
                 charPos = 0;
             }
 
             _this.CharPos_Prop = charPos;
         }
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteAsync(char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0)
-                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -605,14 +550,14 @@ namespace System.IO
             {
                 if (charPos == charLen) {
                     await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                    Contract.Assert(_this.charPos == 0);
+                    Debug.Assert(_this.charPos == 0);
                     charPos = 0;
                 }
 
                 int n = charLen - charPos;
                 if (n > count) n = count;
 
-                Contract.Assert(n > 0, "StreamWriter::Write(char[], int, int) isn't making progress!  This is most likely a race condition in user code.");
+                Debug.Assert(n > 0, "StreamWriter::Write(char[], int, int) isn't making progress!  This is most likely a race condition in user code.");
 
                 Buffer.InternalBlockCopy(buffer, index * sizeof(char), charBuffer, charPos * sizeof(char), n * sizeof(char));
 
@@ -627,7 +572,7 @@ namespace System.IO
                 {
                     if (charPos == charLen) {
                         await _this.FlushAsyncInternal(false, false, charBuffer, charPos).ConfigureAwait(false);
-                        Contract.Assert(_this.charPos == 0);
+                        Debug.Assert(_this.charPos == 0);
                         charPos = 0;
                     }
 
@@ -638,14 +583,13 @@ namespace System.IO
 
             if (autoFlush) {
                 await _this.FlushAsyncInternal(true, false, charBuffer, charPos).ConfigureAwait(false);
-                Contract.Assert(_this.charPos == 0);
+                Debug.Assert(_this.charPos == 0);
                 charPos = 0;
             }
 
             _this.CharPos_Prop = charPos;
         }
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteLineAsync()
         {
@@ -668,7 +612,6 @@ namespace System.IO
         }
         
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteLineAsync(char value)
         {
@@ -691,7 +634,6 @@ namespace System.IO
         }
         
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteLineAsync(String value)
         {
@@ -714,16 +656,15 @@ namespace System.IO
         }
 
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task WriteLineAsync(char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0)
-                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -747,7 +688,6 @@ namespace System.IO
         }
         
 
-        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task FlushAsync()
         {
@@ -821,42 +761,5 @@ namespace System.IO
                 await stream.FlushAsync().ConfigureAwait(false);
         }
         #endregion
-
-#if MDA_SUPPORTED
-        // StreamWriterBufferedDataLost MDA
-        // Instead of adding a finalizer to StreamWriter for detecting buffered data loss  
-        // (ie, when the user forgets to call Close/Flush on the StreamWriter), we will 
-        // have a separate object with normal finalization semantics that maintains a 
-        // back pointer to this StreamWriter and alerts about any data loss
-        private sealed class MdaHelper
-        {
-            private StreamWriter streamWriter;
-            private String allocatedCallstack;    // captures the callstack when this streamwriter was allocated
-
-            internal MdaHelper(StreamWriter sw, String cs)
-            {
-                streamWriter = sw;
-                allocatedCallstack = cs;
-            }
-
-            // Finalizer
-            ~MdaHelper()
-            {
-                // Make sure people closed this StreamWriter, exclude StreamWriter::Null.
-                if (streamWriter.charPos != 0 && streamWriter.stream != null && streamWriter.stream != Stream.Null) {
-                    String fileName = (streamWriter.stream is FileStream) ? ((FileStream)streamWriter.stream).NameInternal : "<unknown>";
-                    String callStack = allocatedCallstack;
-
-                    if (callStack == null)
-                        callStack = Environment.GetResourceString("IO_StreamWriterBufferedDataLostCaptureAllocatedFromCallstackNotEnabled");
-
-                    String message = Environment.GetResourceString("IO_StreamWriterBufferedDataLost", streamWriter.stream.GetType().FullName, fileName, callStack);
-
-                    Mda.StreamWriterBufferedDataLost.ReportError(message);
-                }
-            }
-        }  // class MdaHelper
-#endif  // MDA_SUPPORTED
-
     }  // class StreamWriter
 }  // namespace

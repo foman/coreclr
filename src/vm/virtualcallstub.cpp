@@ -1107,7 +1107,7 @@ BOOL VirtualCallStubManager::TraceManager(Thread *thread,
 
 #ifdef FEATURE_PREJIT
     // This is the case for the lazy slot fixup
-    if (GetIP(pContext) == GFN_TADDR(StubDispatchFixupPatchLabel)) {
+    if (GetIP(pContext) == GetEEFuncEntryPoint(StubDispatchFixupPatchLabel)) {
 
         *pRetAddr = (BYTE *)StubManagerHelpers::GetReturnAddress(pContext);
 
@@ -2277,12 +2277,11 @@ VirtualCallStubManager::Resolver(
         // It allows objects that implement ICastable to mimic behavior of other types. 
         MethodTable * pTokenMT = GetTypeFromToken(token);
 
-        // Make call to obj.GetImplType(interfaceTypeObj)
-        MethodDesc *pGetImplTypeMD = pMT->GetMethodDescForInterfaceMethod(MscorlibBinder::GetMethod(METHOD__ICASTABLE__GETIMPLTYPE));
+        // Make call to ICastableHelpers.GetImplType(this, interfaceTypeObj)
+        PREPARE_NONVIRTUAL_CALLSITE(METHOD__ICASTABLEHELPERS__GETIMPLTYPE);
+
         OBJECTREF tokenManagedType = pTokenMT->GetManagedClassObject(); //GC triggers
-
-        PREPARE_NONVIRTUAL_CALLSITE_USING_METHODDESC(pGetImplTypeMD);
-
+        
         DECLARE_ARGHOLDER_ARRAY(args, 2);
         args[ARGNUM_0] = OBJECTREF_TO_ARGHOLDER(*protectedObj);
         args[ARGNUM_1] = OBJECTREF_TO_ARGHOLDER(tokenManagedType);

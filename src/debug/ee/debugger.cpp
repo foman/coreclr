@@ -75,6 +75,9 @@ SVAL_IMPL_INIT(BOOL, Debugger, s_fCanChangeNgenFlags, TRUE);
 
 bool g_EnableSIS = false;
 
+// The following instances are used for invoking overloaded new/delete
+InteropSafe interopsafe;
+InteropSafeExecutable interopsafeEXEC;
 
 #ifndef DACCESS_COMPILE
 
@@ -594,8 +597,8 @@ void DoAssertOnType(DebuggerIPCEventType event, int count)
         if (g_iDbgRuntimeCounter[event & 0x00ff] == count)
         {
             char        tmpStr[256];
-            sprintf(tmpStr, "%s == %d, break now!",
-                     IPCENames::GetName(event), count);
+            _snprintf_s(tmpStr, _countof(tmpStr), _TRUNCATE, "%s == %d, break now!",
+                        IPCENames::GetName(event), count);
 
             // fire the assertion
             DbgAssertDialog(__FILE__, __LINE__, tmpStr);
@@ -608,8 +611,8 @@ void DoAssertOnType(DebuggerIPCEventType event, int count)
         if (g_iDbgDebuggerCounter[event & 0x00ff] == count)
         {
             char        tmpStr[256];
-            sprintf(tmpStr, "%s == %d, break now!",
-                     IPCENames::GetName(event), count);
+            _snprintf_s(tmpStr, _countof(tmpStr), _TRUNCATE, "%s == %d, break now!",
+                        IPCENames::GetName(event), count);
 
             // fire the assertion
             DbgAssertDialog(__FILE__, __LINE__, tmpStr);
@@ -983,6 +986,7 @@ Debugger::Debugger()
 
     m_fShutdownMode = false;
     m_fDisabled = false;
+    m_rgHijackFunction = NULL;
 
 #ifdef _DEBUG
     InitDebugEventCounting();
@@ -1462,7 +1466,7 @@ DebuggerEval::DebuggerEval(CONTEXT * pContext, DebuggerIPCE_FuncEvalInfo * pEval
     m_genericArgsNodeCount = pEvalInfo->genericArgsNodeCount;
     m_successful = false;
     m_argData = NULL;
-    m_result = 0;
+    memset(m_result, 0, sizeof(m_result));
     m_md = NULL;
     m_resultType = TypeHandle();
     m_aborting = FE_ABORT_NONE;
@@ -1518,7 +1522,7 @@ DebuggerEval::DebuggerEval(CONTEXT * pContext, Thread * pThread, Thread::ThreadA
     m_successful = false;
     m_argData = NULL;
     m_targetCodeAddr = NULL;
-    m_result = 0;
+    memset(m_result, 0, sizeof(m_result));
     m_md = NULL;
     m_resultType = TypeHandle();
     m_aborting = FE_ABORT_NONE;
@@ -2112,18 +2116,9 @@ HRESULT Debugger::Startup(void)
             ShutdownTransport();
             ThrowHR(hr);
         }
-
     #ifdef FEATURE_PAL
         PAL_SetShutdownCallback(AbortTransport);
     #endif // FEATURE_PAL
-
-         bool waitForAttach = CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_DbgWaitForDebuggerAttach) != 0;
-         if (waitForAttach)
-         {
-             // Mark this process as launched by the debugger and the debugger as attached.
-             g_CORDebuggerControlFlags |= DBCF_GENERATE_DEBUG_CODE;
-             MarkDebuggerAttachedInternal();
-         }
     #endif // FEATURE_DBGIPC_TRANSPORT_VM
 
         RaiseStartupNotification();
@@ -8388,7 +8383,7 @@ FramePointer GetHandlerFramePointer(BYTE *pStack)
 {
     FramePointer handlerFP;
 
-#if !defined(_TARGET_ARM_)
+#if !defined(_TARGET_ARM_) && !defined(_TARGET_ARM64_) 
     // Refer to the comment in DispatchUnwind() to see why we have to add
     // sizeof(LPVOID) to the handler ebp.
     handlerFP = FramePointer::MakeFramePointer(LPVOID(pStack + sizeof(void*)));
@@ -10361,7 +10356,7 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
     if (CORDBUnrecoverableError(this))
         return;
 
-    LOG((LF_CORDB, LL_INFO10000, "D::FEC: func eval complete pDE:%08x evalType:%d %s %s\n",
+    LOG((LF_CORDB, LL_INFO1000, "D::FEC: func eval complete pDE:%p evalType:%d %s %s\n",
         pDE, pDE->m_evalType, pDE->m_successful ? "Success" : "Fail", pDE->m_aborted ? "Abort" : "Completed"));
 
 
@@ -10394,11 +10389,11 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
     ipce->FuncEvalComplete.funcEvalKey = pDE->m_funcEvalKey;
     ipce->FuncEvalComplete.successful = pDE->m_successful;
     ipce->FuncEvalComplete.aborted = pDE->m_aborted;
-    ipce->FuncEvalComplete.resultAddr = &(pDE->m_result);
+    ipce->FuncEvalComplete.resultAddr = pDE->m_result;
     ipce->FuncEvalComplete.vmAppDomain.SetRawPtr(pResultDomain);
     ipce->FuncEvalComplete.vmObjectHandle = pDE->m_vmObjectHandle;
 
-    LOG((LF_CORDB, LL_INFO10000, "D::FEC: TypeHandle is :%08x\n", pDE->m_resultType.AsPtr()));
+    LOG((LF_CORDB, LL_INFO1000, "D::FEC: TypeHandle is %p\n", pDE->m_resultType.AsPtr()));
 
     Debugger::TypeHandleToExpandedTypeInfo(pDE->m_retValueBoxing, // whether return values get boxed or not depends on the particular FuncEval we're doing...
                                            pResultDomain,
@@ -10407,11 +10402,12 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
 
     _ASSERTE(ipce->FuncEvalComplete.resultType.elementType != ELEMENT_TYPE_VALUETYPE);
 
-    LOG((LF_CORDB, LL_INFO10000, "D::FEC: returned from call\n"));
-
     // We must adjust the result address to point to the right place
     ipce->FuncEvalComplete.resultAddr = ArgSlotEndianessFixup((ARG_SLOT*)ipce->FuncEvalComplete.resultAddr, 
         GetSizeForCorElementType(ipce->FuncEvalComplete.resultType.elementType));
+
+    LOG((LF_CORDB, LL_INFO1000, "D::FEC: returned el %04x resultAddr %p\n", 
+        ipce->FuncEvalComplete.resultType.elementType, ipce->FuncEvalComplete.resultAddr));
 
     m_pRCThread->SendIPCEvent();
 
@@ -10584,64 +10580,6 @@ BYTE* Debugger::SerializeModuleMetaData(Module * pModule, DWORD * countBytes)
     LOG((LF_CORDB, LL_INFO10000, "Debugger::SMMD exiting\n"));
     return metadataBuffer;
 }
-
-#ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-//---------------------------------------------------------------------------------------
-//
-// Called on the helper thread to send a pause notification to the host
-//
-//
-//    This is called on the helper-thread, or a thread pretending to be the helper-thread.
-//    The debuggee should be synchronized. This callback to the host is only supported
-//    on Windows Phone as a replacement for some legacy NetCF behavior. In general I don't
-//    like being the transport between the VS debugger and the host, so don't use
-//    this as precedent that we should start making more callbacks for them. In the future
-//    the debugger and host should make alternative arrangements such as window messages,
-//    out of proc event signaling, or any other IPC mechanism.
-//
-//    This should be deprecated as soon as mixed-mode debugging is available. The 
-//    end goal on phone is to pause the UI thread while VS is in the break state. That
-//    will be accomplished by a mixed-mode debugger suspending all native threads when
-//    it breaks rather than having us send a special message.
-//
-//---------------------------------------------------------------------------------------
-VOID Debugger::InvokeLegacyNetCFHostPauseCallback()
-{
-    IHostNetCFDebugControlManager* pHostCallback = CorHost2::GetHostNetCFDebugControlManager();
-    if(pHostCallback != NULL)
-    {
-        pHostCallback->NotifyPause(0);
-    }
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Called on the helper thread to send a resume notification to the host
-//
-//
-//    This is called on the helper-thread, or a thread pretending to be the helper-thread.
-//    The debuggee should be synchronized. This callback to the host is only supported
-//    on Windows Phone as a replacement for some legacy NetCF behavior. In general I don't
-//    like being the transport between the VS debugger and the host, so don't use
-//    this as precedent that we should start making more callbacks for them. In the future
-//    the debugger and host should make alternative arrangements such as window messages,
-//    out of proc event signaling, or any other IPC mechanism.
-//
-//    This should be deprecated as soon as mixed-mode debugging is available. The 
-//    end goal on phone is to pause the UI thread while VS is in the break state. That
-//    will be accomplished by a mixed-mode debugger suspending all native threads when
-//    it breaks rather than having us send a special message.
-//
-//---------------------------------------------------------------------------------------
-VOID Debugger::InvokeLegacyNetCFHostResumeCallback()
-{
-    IHostNetCFDebugControlManager* pHostCallback = CorHost2::GetHostNetCFDebugControlManager();
-    if(pHostCallback != NULL)
-    {
-        pHostCallback->NotifyResume(0);
-    }
-}
-#endif //FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
 
 //---------------------------------------------------------------------------------------
 //
@@ -11716,34 +11654,6 @@ bool Debugger::HandleIPCEvent(DebuggerIPCEvent * pEvent)
 
         break;
 
-#ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-    case DB_IPCE_NETCF_HOST_CONTROL_PAUSE:
-        {
-            LOG((LF_CORDB, LL_INFO10000, "D::HIPCE Handling DB_IPCE_NETCF_HOST_CONTROL_PAUSE\n"));
-            InvokeLegacyNetCFHostPauseCallback();
-
-            DebuggerIPCEvent * pResult = m_pRCThread->GetIPCEventReceiveBuffer();
-            InitIPCEvent(pResult, DB_IPCE_NETCF_HOST_CONTROL_PAUSE_RESULT, NULL, NULL);
-            pResult->hr = S_OK;
-            m_pRCThread->SendIPCReply();
-        }
-
-        break;
-
-    case DB_IPCE_NETCF_HOST_CONTROL_RESUME:
-        {
-            LOG((LF_CORDB, LL_INFO10000, "D::HIPCE Handling DB_IPCE_NETCF_HOST_CONTROL_RESUME\n"));
-            InvokeLegacyNetCFHostResumeCallback();
-
-            DebuggerIPCEvent * pResult = m_pRCThread->GetIPCEventReceiveBuffer();
-            InitIPCEvent(pResult, DB_IPCE_NETCF_HOST_CONTROL_RESUME_RESULT, NULL, NULL);
-            pResult->hr = S_OK;
-            m_pRCThread->SendIPCReply();
-        }
-
-        break;
-#endif // FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-
     default:
         // We should never get an event that we don't know about.
         CONSISTENCY_CHECK_MSGF(false, ("Unknown Debug-Event on LS:id=0x%08x.", pEvent->type));
@@ -11982,7 +11892,7 @@ HRESULT Debugger::GetAndSendInterceptCommand(DebuggerIPCEvent *event)
                                                               csi.m_activeFrame.MethodToken,
                                                               csi.m_activeFrame.md,
                                                               foundOffset,
-#ifdef _TARGET_ARM_
+#if defined (_TARGET_ARM_ )|| defined (_TARGET_ARM64_ )
                                                               // ARM requires the caller stack pointer, not the current stack pointer
                                                               CallerStackFrame::FromRegDisplay(&(csi.m_activeFrame.registers)),
 #else
@@ -12000,7 +11910,7 @@ HRESULT Debugger::GetAndSendInterceptCommand(DebuggerIPCEvent *event)
 
                             //
                             // Save off this breakpoint, so that if the exception gets unwound before we hit
-                            // the breakpoint - the exeception info can call back to remove it.
+                            // the breakpoint - the exception info can call back to remove it.
                             //
                             pExState->GetDebuggerState()->SetDebuggerInterceptContext((void *)pBreakpoint);
 
@@ -13587,7 +13497,17 @@ ExceptionHijackPersonalityRoutine(IN     PEXCEPTION_RECORD   pExceptionRecord
     CONTEXT * pHijackContext = NULL;
 
     // Get the 1st parameter (the Context) from hijack worker.
-    pHijackContext = *reinterpret_cast<CONTEXT **>(pDispatcherContext->EstablisherFrame);
+    // EstablisherFrame points to the stack slot 8 bytes above the
+    // return address to the ExceptionHijack. This would contain the
+    // parameters passed to ExceptionHijackWorker, which is marked
+    // STDCALL, but the x64 calling convention lets the
+    // ExceptionHijackWorker use that stack space, resulting in the
+    // context being overwritten. Instead, we get the context from the
+    // previous stack frame, which contains the arguments to
+    // ExceptionHijack, placed there by the debugger in
+    // DacDbiInterfaceImpl::Hijack. This works because ExceptionHijack
+    // allocates exactly 4 stack slots.
+    pHijackContext = *reinterpret_cast<CONTEXT **>(pDispatcherContext->EstablisherFrame + 0x20);
     
     // This copies pHijackContext into pDispatcherContext, which the OS can then
     // use to walk the stack.
@@ -15443,6 +15363,8 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
 #endif // !UNIX_AMD64_ABI
 #elif defined(_TARGET_ARM_)
         filterContext->R0 = (DWORD)pDE;
+#elif defined(_TARGET_ARM64_)
+        filterContext->X0 = (SIZE_T)pDE;
 #else
         PORTABILITY_ASSERT("Debugger::FuncEvalSetup is not implemented on this platform.");
 #endif
@@ -15537,6 +15459,8 @@ HRESULT Debugger::FuncEvalSetupReAbort(Thread *pThread, Thread::ThreadAbortReque
     filterContext->Rcx = (SIZE_T)pDE;
 #elif defined(_TARGET_ARM_)
     filterContext->R0 = (DWORD)pDE;
+#elif defined(_TARGET_ARM64_)
+    filterContext->X0 = (SIZE_T)pDE;
 #else
     PORTABILITY_ASSERT("FuncEvalSetupReAbort (Debugger.cpp) is not implemented on this platform.");
 #endif
@@ -17092,6 +17016,7 @@ Debugger::EnumMemoryRegions(CLRDataEnumMemoryFlags flags)
 {
     DAC_ENUM_VTHIS();
     SUPPORTS_DAC;
+    _ASSERTE(m_rgHijackFunction != NULL);
 
     if ( flags != CLRDATA_ENUM_MEM_TRIAGE)
     {

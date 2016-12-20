@@ -54,13 +54,117 @@ Notes:
 
 */
 
+#ifdef FEATURE_PAL
+#define INITIALIZE_SHIM { if (PAL_InitializeDLL() != 0) return E_FAIL; }
+#else
+#define INITIALIZE_SHIM
+#endif
+
 // Contract for public APIs. These must be NOTHROW.
 #define PUBLIC_CONTRACT \
+    INITIALIZE_SHIM \
     CONTRACTL \
     { \
         NOTHROW; \
     } \
-    CONTRACTL_END; \
+    CONTRACTL_END;
+
+//-----------------------------------------------------------------------------
+// Public API.
+//
+// CreateProcessForLaunch - a stripped down version of the Windows CreateProcess
+// that can be supported cross-platform.
+//
+//-----------------------------------------------------------------------------
+HRESULT
+CreateProcessForLaunch(
+    __in LPWSTR lpCommandLine,
+    __in BOOL bSuspendProcess,
+    __in LPVOID lpEnvironment,
+    __in LPCWSTR lpCurrentDirectory,
+    __out PDWORD pProcessId,
+    __out HANDLE *pResumeHandle)
+{
+    PUBLIC_CONTRACT;
+
+    PROCESS_INFORMATION processInfo;
+    STARTUPINFOW startupInfo;
+    DWORD dwCreationFlags = 0;
+
+    ZeroMemory(&processInfo, sizeof(processInfo));
+    ZeroMemory(&startupInfo, sizeof(startupInfo));
+
+    startupInfo.cb = sizeof(startupInfo);
+
+    if (bSuspendProcess)
+    {
+        dwCreationFlags = CREATE_SUSPENDED;
+    }
+
+    BOOL result = CreateProcessW(
+        NULL,
+        lpCommandLine,
+        NULL,
+        NULL,
+        FALSE,
+        dwCreationFlags,
+        lpEnvironment,
+        lpCurrentDirectory,
+        &startupInfo,
+        &processInfo);
+
+    if (!result) {
+        *pProcessId = 0;
+        *pResumeHandle = NULL;
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    if (processInfo.hProcess != NULL)
+    {
+        CloseHandle(processInfo.hProcess);
+    }
+
+    *pProcessId = processInfo.dwProcessId;
+    *pResumeHandle = processInfo.hThread;
+
+    return S_OK;
+}
+
+//-----------------------------------------------------------------------------
+// Public API.
+//
+// ResumeProcess - to be used with the CreateProcessForLaunch resume handle
+//
+//-----------------------------------------------------------------------------
+HRESULT
+ResumeProcess(
+    __in HANDLE hResumeHandle)
+{
+    PUBLIC_CONTRACT;
+    if (ResumeThread(hResumeHandle) == (DWORD)-1)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    return S_OK;
+}
+
+//-----------------------------------------------------------------------------
+// Public API.
+//
+// CloseResumeHandle - to be used with the CreateProcessForLaunch resume handle
+//
+//-----------------------------------------------------------------------------
+HRESULT
+CloseResumeHandle(
+    __in HANDLE hResumeHandle)
+{
+    PUBLIC_CONTRACT;
+    if (!CloseHandle(hResumeHandle))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    return S_OK;
+}
 
 #ifdef FEATURE_PAL
 
@@ -163,9 +267,10 @@ public:
 
     HRESULT Register()
     {
-        if (PAL_RegisterForRuntimeStartup(m_processId, RuntimeStartupHandler, this, &m_unregisterToken) != NO_ERROR)
+        DWORD pe = PAL_RegisterForRuntimeStartup(m_processId, RuntimeStartupHandler, this, &m_unregisterToken);
+        if (pe != NO_ERROR)
         {
-            return E_INVALIDARG;
+            return HRESULT_FROM_WIN32(pe);
         }
         return S_OK;
     }
@@ -287,7 +392,7 @@ public:
         int numTries = 0;
         HRESULT hr;
 
-        while (numTries < 10)
+        while (numTries < 25)
         {
             // EnumerateCLRs uses the OS API CreateToolhelp32Snapshot which can return ERROR_BAD_LENGTH or 
             // ERROR_PARTIAL_COPY. If we get either of those, we try wait 1/10th of a second try again (that
@@ -328,7 +433,7 @@ public:
         DWORD arrayLength = 0;
 
         // Wake up runtime(s)
-        HRESULT hr = InternalEnumerateCLRs(&handleArray, &stringArray, &arrayLength);
+        HRESULT hr = EnumerateCLRs(m_processId, &handleArray, &stringArray, &arrayLength);
         if (SUCCEEDED(hr))
         {
             WakeRuntimes(handleArray, arrayLength);
@@ -412,7 +517,9 @@ public:
         bool coreclrExists = false;
 
         HRESULT hr = InvokeStartupCallback(&coreclrExists);
-        if (SUCCEEDED(hr))
+        // Because the target process is suspended on create, the toolhelp apis fail with the below errors even
+        // with the retry logic in InternalEnumerateCLRs.
+        if (SUCCEEDED(hr) || (hr == HRESULT_FROM_WIN32(ERROR_PARTIAL_COPY)) || (hr == HRESULT_FROM_WIN32(ERROR_BAD_LENGTH)))
         {
             if (!coreclrExists && !m_canceled)
             {
@@ -1682,33 +1789,3 @@ CLRCreateInstance(
     return E_NOTIMPL;
 #endif
 }
-
-#ifdef FEATURE_PAL
-
-EXTERN_C BOOL WINAPI
-DllMain(HANDLE instance, DWORD reason, LPVOID reserved)
-{
-    int err = 0;
-
-    switch (reason)
-    {
-        case DLL_PROCESS_ATTACH:
-        {
-            err = PAL_InitializeDLL();
-            break;
-        }
-
-        case DLL_THREAD_ATTACH:
-            err = PAL_EnterTop();
-            break;
-    }
-
-    if (err != 0)
-    {
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-#endif // FEATURE_PAL

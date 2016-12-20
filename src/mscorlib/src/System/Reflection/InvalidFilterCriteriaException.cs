@@ -18,12 +18,8 @@ namespace System.Reflection {
     using System.Runtime.Serialization;
     using ApplicationException = System.ApplicationException;
     [Serializable]
-[System.Runtime.InteropServices.ComVisible(true)]
-#if FEATURE_CORECLR
-    public class InvalidFilterCriteriaException : Exception {
-#else
+    [System.Runtime.InteropServices.ComVisible(true)]
     public class InvalidFilterCriteriaException : ApplicationException {
-#endif // FEATURE_CORECLR    
         public InvalidFilterCriteriaException()
             : base(Environment.GetResourceString("Arg_InvalidFilterCriteriaException")) {
             SetErrorCode(__HResults.COR_E_INVALIDFILTERCRITERIA);

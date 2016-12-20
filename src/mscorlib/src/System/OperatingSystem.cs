@@ -35,18 +35,14 @@ namespace System {
         }
     
         internal OperatingSystem(PlatformID platform, Version version, string servicePack) {
-#if !FEATURE_LEGACYNETCF
             if( platform < PlatformID.Win32S || platform > PlatformID.MacOSX) {
-#else // FEATURE_LEGACYNETCF
-            if( platform < PlatformID.Win32S || platform > PlatformID.NokiaS60) {
-#endif // FEATURE_LEGACYNETCF
                 throw new ArgumentException(
                     Environment.GetResourceString("Arg_EnumIllegalVal", (int)platform),
-                    "platform");
+                    nameof(platform));
             }
 
             if ((Object) version == null)
-                throw new ArgumentNullException("version");
+                throw new ArgumentNullException(nameof(version));
             Contract.EndContractBlock();
 
             _platform = platform;
@@ -75,10 +71,9 @@ namespace System {
             }
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             if( info == null ) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
 
@@ -139,11 +134,9 @@ namespace System {
                     case PlatformID.WinCE:
                         os = "Microsoft Windows CE ";
                         break;
-#if !FEATURE_LEGACYNETCF
                     case PlatformID.MacOSX:
                         os = "Mac OS X ";
                         break;
-#endif
                     default:
                         os = "<unknown> ";
                         break;

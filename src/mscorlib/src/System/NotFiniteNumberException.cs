@@ -9,7 +9,7 @@ namespace System {
     using System.Security.Permissions;
     using System.Diagnostics.Contracts;
 
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public class NotFiniteNumberException : ArithmeticException {
         private double _offendingNumber;    
@@ -57,10 +57,9 @@ namespace System {
             get { return _offendingNumber; }
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info==null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
             base.GetObjectData(info, context);

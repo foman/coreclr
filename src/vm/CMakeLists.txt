@@ -5,28 +5,6 @@ include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
 
 include_directories(${CLR_DIR}/src/gc)
 
-if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
-    add_definitions(-D_TARGET_AMD64_=1)
-    add_definitions(-DDBG_TARGET_64BIT=1)
-    add_definitions(-DDBG_TARGET_AMD64=1)
-    add_definitions(-DDBG_TARGET_WIN64=1)
-elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
-    add_definitions(-D_TARGET_X86_=1)
-    add_definitions(-DDBG_TARGET_32BIT=1)
-    add_definitions(-DDBG_TARGET_X86=1)
-elseif(CLR_CMAKE_PLATFORM_ARCH_ARM)
-    add_definitions(-D_TARGET_ARM_=1)
-    add_definitions(-DDBG_TARGET_32BIT=1)
-    add_definitions(-DDBG_TARGET_ARM=1)
-elseif(CLR_CMAKE_PLATFORM_ARCH_ARM64)
-    add_definitions(-D_TARGET_ARM64_=1)
-    add_definitions(-DDBG_TARGET_64BIT=1)
-    add_definitions(-DDBG_TARGET_ARM64=1)
-    add_definitions(-DDBG_TARGET_WIN64=1)
-else()
-    clr_unknown_arch()
-endif()
-
 include_directories(${ARCH_SOURCES_DIR})
 
 add_definitions(-DFEATURE_LEAVE_RUNTIME_HOLDER=1)
@@ -34,8 +12,6 @@ add_definitions(-DFEATURE_LEAVE_RUNTIME_HOLDER=1)
 add_definitions(-DUNICODE)
 add_definitions(-D_UNICODE)
 
-# Add the Merge flag here is needed
-add_definitions(-DFEATURE_MERGE_JIT_AND_ENGINE)
 
 if(CMAKE_CONFIGURATION_TYPES) # multi-configuration generator?
   foreach (Config DEBUG CHECKED)  
@@ -50,6 +26,13 @@ endif(CMAKE_CONFIGURATION_TYPES)
 if(CLR_CMAKE_PLATFORM_UNIX)
     add_compile_options(-fPIC)
 endif(CLR_CMAKE_PLATFORM_UNIX)
+
+if(FEATURE_GDBJIT)
+    set(VM_SOURCES_GDBJIT
+        gdbjit.cpp
+    )
+    add_definitions(-DFEATURE_GDBJIT)
+endif(FEATURE_GDBJIT)
 
 set(VM_SOURCES_DAC_AND_WKS_COMMON
     appdomain.cpp
@@ -87,15 +70,9 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     formattype.cpp
     fptrstubs.cpp
     frames.cpp
-    ../gc/gccommon.cpp
-    ../gc/gcscan.cpp
-    ../gc/gcsvr.cpp
-    ../gc/gcwks.cpp
+    gcheaputilities.cpp
     genericdict.cpp
     generics.cpp
-    ../gc/handletable.cpp
-    ../gc/handletablecore.cpp
-    ../gc/handletablescan.cpp
     hash.cpp
     hillclimbing.cpp
     ilstubcache.cpp
@@ -110,11 +87,11 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     methoditer.cpp
     methodtable.cpp
     object.cpp
-    ../gc/objecthandle.cpp
     pefile.cpp
     peimage.cpp
     peimagelayout.cpp
     perfmap.cpp
+    perfinfo.cpp
     precode.cpp
     prestub.cpp
     rejit.cpp
@@ -136,6 +113,7 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     typestring.cpp
     util.cpp
     vars.cpp
+    versionresilienthashcode.cpp
     virtualcallstub.cpp
     win32threadpool.cpp
     zapsig.cpp
@@ -177,11 +155,9 @@ set(VM_SOURCES_WKS
     comthreadpool.cpp
     comutilnative.cpp
     comwaithandle.cpp
-    constrainedexecutionregion.cpp
     coverage.cpp
     customattribute.cpp
     custommarshalerinfo.cpp
-    dbggcinfodecoder.cpp
     dllimportcallback.cpp
     eeconfig.cpp
     eecontract.cpp
@@ -195,12 +171,8 @@ set(VM_SOURCES_WKS
     frameworkexceptionloader.cpp
     gccover.cpp
     gcenv.ee.cpp
-    gcenv.os.cpp
     gchelpers.cpp
     genmeth.cpp
-    ../gc/gceesvr.cpp
-    ../gc/gceewks.cpp
-    ../gc/handletablecache.cpp
     hosting.cpp
     ibclogger.cpp
     ilmarshalers.cpp
@@ -219,6 +191,7 @@ set(VM_SOURCES_WKS
     mscorlib.cpp # <DisablePrecompiledHeaders>true</DisablePrecompiledHeaders>
     multicorejit.cpp # Condition="'$(FeatureMulticoreJIT)' == 'true'
     multicorejitplayer.cpp # Condition="'$(FeatureMulticoreJIT)' == 'true'
+    nativeeventsource.cpp
     nativeoverlapped.cpp
     objectlist.cpp
     olevariant.cpp
@@ -265,13 +238,26 @@ set(VM_SOURCES_WKS
     typeparse.cpp
     verifier.cpp
     weakreferencenative.cpp
+    ${VM_SOURCES_GDBJIT}
 )
+
+if(FEATURE_CER)
+    list(APPEND VM_SOURCES_WKS
+        constrainedexecutionregion.cpp
+        )
+endif(FEATURE_CER)
 
 if(FEATURE_EVENT_TRACE)
     list(APPEND VM_SOURCES_WKS
         eventtrace.cpp
         )
 endif(FEATURE_EVENT_TRACE)
+
+if(NOT FEATURE_STANDALONE_GC)
+    list(APPEND VM_SOURCES_WKS
+        gcenv.os.cpp
+        )
+endif(NOT FEATURE_STANDALONE_GC)
 
 if(WIN32)
 
@@ -322,7 +308,7 @@ list(APPEND VM_SOURCES_DAC
     clrprivtypecachewinrt.cpp
 )
 
-if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
+if(CLR_CMAKE_TARGET_ARCH_AMD64)
     set(VM_SOURCES_WKS_ARCH_ASM
         ${ARCH_SOURCES_DIR}/AsmHelpers.asm
         ${ARCH_SOURCES_DIR}/CallDescrWorkerAMD64.asm
@@ -345,7 +331,7 @@ if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
         ${ARCH_SOURCES_DIR}/UMThunkStub.asm
         ${ARCH_SOURCES_DIR}/VirtualCallStubAMD64.asm
     )
-elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
+elseif(CLR_CMAKE_TARGET_ARCH_I386)
     set(VM_SOURCES_WKS_ARCH_ASM
         ${ARCH_SOURCES_DIR}/RedirectedHandledJITCase.asm
         ${ARCH_SOURCES_DIR}/asmhelpers.asm
@@ -353,18 +339,28 @@ elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
         ${ARCH_SOURCES_DIR}/gmsasm.asm
         ${ARCH_SOURCES_DIR}/jithelp.asm
     )
-elseif(CLR_CMAKE_PLATFORM_ARCH_ARM64)
+elseif(CLR_CMAKE_TARGET_ARCH_ARM)
     set(VM_SOURCES_WKS_ARCH_ASM
-    ${ARCH_SOURCES_DIR}/AsmHelpers.asm
-    ${ARCH_SOURCES_DIR}/CallDescrWorkerARM64.asm
-    ${ARCH_SOURCES_DIR}/CrtHelpers.asm
-    ${ARCH_SOURCES_DIR}/PInvokeStubs.asm
+        ${ARCH_SOURCES_DIR}/asmhelpers.asm
+        ${ARCH_SOURCES_DIR}/CrtHelpers.asm
+        ${ARCH_SOURCES_DIR}/ehhelpers.asm
+        ${ARCH_SOURCES_DIR}/memcpy.asm
+        ${ARCH_SOURCES_DIR}/patchedcode.asm
+        ${ARCH_SOURCES_DIR}/PInvokeStubs.asm
     )
+elseif(CLR_CMAKE_TARGET_ARCH_ARM64)
+    set(VM_SOURCES_WKS_ARCH_ASM
+        ${ARCH_SOURCES_DIR}/AsmHelpers.asm
+        ${ARCH_SOURCES_DIR}/CallDescrWorkerARM64.asm
+        ${ARCH_SOURCES_DIR}/CrtHelpers.asm
+        ${ARCH_SOURCES_DIR}/PInvokeStubs.asm
+    )
+
 endif()
 
 else(WIN32)
 
-    if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
+    if(CLR_CMAKE_TARGET_ARCH_AMD64)
         set(VM_SOURCES_WKS_ARCH_ASM
             ${ARCH_SOURCES_DIR}/calldescrworkeramd64.S
             ${ARCH_SOURCES_DIR}/crthelpers.S
@@ -379,15 +375,23 @@ else(WIN32)
             ${ARCH_SOURCES_DIR}/umthunkstub.S
             ${ARCH_SOURCES_DIR}/virtualcallstubamd64.S
         )
-    elseif(CLR_CMAKE_PLATFORM_ARCH_ARM)
+    elseif(CLR_CMAKE_TARGET_ARCH_I386)
+        set(VM_SOURCES_WKS_ARCH_ASM
+            ${ARCH_SOURCES_DIR}/asmhelpers.S
+            ${ARCH_SOURCES_DIR}/jithelp.S
+            ${ARCH_SOURCES_DIR}/gmsasm.S
+            ${ARCH_SOURCES_DIR}/umthunkstub.S
+        )
+    elseif(CLR_CMAKE_TARGET_ARCH_ARM)
         set(VM_SOURCES_WKS_ARCH_ASM
             ${ARCH_SOURCES_DIR}/asmhelpers.S
             ${ARCH_SOURCES_DIR}/crthelpers.S
             ${ARCH_SOURCES_DIR}/ehhelpers.S
             ${ARCH_SOURCES_DIR}/memcpy.S
             ${ARCH_SOURCES_DIR}/patchedcode.S
+            ${ARCH_SOURCES_DIR}/pinvokestubs.S
         )
-    elseif(CLR_CMAKE_PLATFORM_ARCH_ARM64)
+    elseif(CLR_CMAKE_TARGET_ARCH_ARM64)
         set(VM_SOURCES_WKS_ARCH_ASM
             ${ARCH_SOURCES_DIR}/asmhelpers.S
             ${ARCH_SOURCES_DIR}/calldescrworkerarm64.S
@@ -399,7 +403,7 @@ else(WIN32)
 endif(WIN32)
 
 
-if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
+if(CLR_CMAKE_TARGET_ARCH_AMD64)
     set(VM_SOURCES_DAC_AND_WKS_ARCH
         ${ARCH_SOURCES_DIR}/cgenamd64.cpp
         ${ARCH_SOURCES_DIR}/excepamd64.cpp
@@ -415,7 +419,7 @@ if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
         gcinfodecoder.cpp
         jitinterfacegen.cpp
     )
-elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
+elseif(CLR_CMAKE_TARGET_ARCH_I386)
     set(VM_SOURCES_DAC_AND_WKS_ARCH
         gcdecode.cpp
         exinfo.cpp
@@ -426,11 +430,10 @@ elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
     )
     
     set(VM_SOURCES_WKS_ARCH
-        ${ARCH_SOURCES_DIR}/jithelp.asm
         ${ARCH_SOURCES_DIR}/jitinterfacex86.cpp
         ${ARCH_SOURCES_DIR}/profiler.cpp
     )
-elseif(CLR_CMAKE_PLATFORM_ARCH_ARM)
+elseif(CLR_CMAKE_TARGET_ARCH_ARM)
     set(VM_SOURCES_DAC_AND_WKS_ARCH
         ${ARCH_SOURCES_DIR}/exceparm.cpp
         ${ARCH_SOURCES_DIR}/stubs.cpp
@@ -443,7 +446,7 @@ elseif(CLR_CMAKE_PLATFORM_ARCH_ARM)
         exceptionhandling.cpp
         gcinfodecoder.cpp
     )
-elseif(CLR_CMAKE_PLATFORM_ARCH_ARM64)
+elseif(CLR_CMAKE_TARGET_ARCH_ARM64)
     set(VM_SOURCES_DAC_AND_WKS_ARCH
         ${ARCH_SOURCES_DIR}/cgenarm64.cpp
         ${ARCH_SOURCES_DIR}/stubs.cpp
@@ -460,7 +463,6 @@ endif(CLR_CMAKE_PLATFORM_UNIX)
 
 set(VM_SOURCES_DAC_ARCH
     gcinfodecoder.cpp
-    dbggcinfodecoder.cpp
     exceptionhandling.cpp
 )
 

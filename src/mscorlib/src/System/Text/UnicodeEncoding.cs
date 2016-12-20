@@ -12,13 +12,19 @@ namespace System.Text
     using System.Globalization;
     using System.Runtime.Serialization;
     using System.Security.Permissions;
+    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
 
-    [Serializable] 
+    [Serializable]
     [System.Runtime.InteropServices.ComVisible(true)]
     public class UnicodeEncoding : Encoding
     {
+        // Used by Encoding.BigEndianUnicode/Unicode for lazy initialization
+        // The initialization code will not be run until a static member of the class is referenced
+        internal static readonly UnicodeEncoding s_bigEndianDefault = new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
+        internal static readonly UnicodeEncoding s_littleEndianDefault = new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
+
         [OptionalField(VersionAdded = 2)]
         internal bool isThrowException = false;
         
@@ -77,123 +83,44 @@ namespace System.Text
             }
         }
 
-        //
-        // The following methods are copied from EncodingNLS.cs.
-        // Unfortunately EncodingNLS.cs is internal and we're public, so we have to reimpliment them here.
-        // These should be kept in sync for the following classes:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        //
+        // NOTE: Many methods in this class forward to EncodingForwarder for
+        // validating arguments/wrapping the unsafe methods in this class 
+        // which do the actual work. That class contains
+        // shared logic for doing this which is used by
+        // ASCIIEncoding, EncodingNLS, UnicodeEncoding, UTF32Encoding,
+        // UTF7Encoding, and UTF8Encoding.
+        // The reason the code is separated out into a static class, rather
+        // than a base class which overrides all of these methods for us
+        // (which is what EncodingNLS is for internal Encodings) is because
+        // that's really more of an implementation detail so it's internal.
+        // At the same time, C# doesn't allow a public class subclassing an
+        // internal/private one, so we end up having to re-override these
+        // methods in all of the public Encodings + EncodingNLS.
 
         // Returns the number of bytes required to encode a range of characters in
         // a character array.
-        //
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetByteCount(char[] chars, int index, int count)
+        public override int GetByteCount(char[] chars, int index, int count)
         {
-            // Validate input parameters
-            if (chars == null)
-                throw new ArgumentNullException("chars",
-                      Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index<0 ? "index" : "count"),
-                      Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if (chars.Length - index < count)
-                throw new ArgumentOutOfRangeException("chars",
-                      Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
-            Contract.EndContractBlock();
-
-            // If no input, return 0, avoid fixed empty array problem
-            if (chars.Length == 0)
-                return 0;
-
-            // Just call the pointer version
-            fixed (char* pChars = chars)
-                return GetByteCount(pChars + index, count, null);
+            return EncodingForwarder.GetByteCount(this, chars, index, count);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
-
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetByteCount(String s)
+        public override int GetByteCount(String s)
         {
-            // Validate input
-            if (s==null)
-                throw new ArgumentNullException("s");
-            Contract.EndContractBlock();
-
-            fixed (char* pChars = s)
-                return GetByteCount(pChars, s.Length, null);
+            return EncodingForwarder.GetByteCount(this, s);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-
-        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         [System.Runtime.InteropServices.ComVisible(false)]
         public override unsafe int GetByteCount(char* chars, int count)
         {
-            // Validate Parameters
-            if (chars == null)
-                throw new ArgumentNullException("chars",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (count < 0)
-                throw new ArgumentOutOfRangeException("count",
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-            Contract.EndContractBlock();
-
-            // Call it with empty encoder
-            return GetByteCount(chars, count, null);
+            return EncodingForwarder.GetByteCount(this, chars, count);
         }
 
-        // Parent method is safe.
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetBytes(String s, int charIndex, int charCount,
+        public override int GetBytes(String s, int charIndex, int charCount,
                                               byte[] bytes, int byteIndex)
         {
-            if (s == null || bytes == null)
-                throw new ArgumentNullException((s == null ? "s" : "bytes"),
-                      Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (charIndex < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException((charIndex<0 ? "charIndex" : "charCount"),
-                      Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if (s.Length - charIndex < charCount)
-                throw new ArgumentOutOfRangeException("s",
-                      Environment.GetResourceString("ArgumentOutOfRange_IndexCount"));
-
-            if (byteIndex < 0 || byteIndex > bytes.Length)
-                throw new ArgumentOutOfRangeException("byteIndex",
-                    Environment.GetResourceString("ArgumentOutOfRange_Index"));
-            Contract.EndContractBlock();
-
-            int byteCount = bytes.Length - byteIndex;
-
-            // Fixed doesn't like 0 length arrays.
-            if (bytes.Length == 0)
-                bytes = new byte[1];
-
-            fixed (char* pChars = s)
-                fixed ( byte* pBytes = bytes)
-                    return GetBytes(pChars + charIndex, charCount,
-                                    pBytes + byteIndex, byteCount, null);
+            return EncodingForwarder.GetBytes(this, s, charIndex, charCount, bytes, byteIndex);
         }
 
         // Encodes a range of characters in a character array into a range of bytes
@@ -204,240 +131,63 @@ namespace System.Text
         // Alternatively, the GetMaxByteCount method can be used to
         // determine the maximum number of bytes that will be produced for a given
         // number of characters, regardless of the actual character values.
-        //
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetBytes(char[] chars, int charIndex, int charCount,
+        public override int GetBytes(char[] chars, int charIndex, int charCount,
                                                byte[] bytes, int byteIndex)
         {
-            // Validate parameters
-            if (chars == null || bytes == null)
-                throw new ArgumentNullException((chars == null ? "chars" : "bytes"),
-                      Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (charIndex < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException((charIndex<0 ? "charIndex" : "charCount"),
-                      Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if (chars.Length - charIndex < charCount)
-                throw new ArgumentOutOfRangeException("chars",
-                      Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
-
-            if (byteIndex < 0 || byteIndex > bytes.Length)
-                throw new ArgumentOutOfRangeException("byteIndex",
-                     Environment.GetResourceString("ArgumentOutOfRange_Index"));
-            Contract.EndContractBlock();
-
-            // If nothing to encode return 0, avoid fixed problem
-            if (chars.Length == 0)
-                return 0;
-
-            // Just call pointer version
-            int byteCount = bytes.Length - byteIndex;
-
-            // Fixed doesn't like 0 length arrays.
-            if (bytes.Length == 0)
-                bytes = new byte[1];
-
-            fixed (char* pChars = chars)
-                fixed (byte* pBytes = bytes)
-                    // Remember that byteCount is # to decode, not size of array.
-                    return GetBytes(pChars + charIndex, charCount,
-                                    pBytes + byteIndex, byteCount, null);
+            return EncodingForwarder.GetBytes(this, chars, charIndex, charCount, bytes, byteIndex);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-
-        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         [System.Runtime.InteropServices.ComVisible(false)]
         public override unsafe int GetBytes(char* chars, int charCount, byte* bytes, int byteCount)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? "bytes" : "chars",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (charCount < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException((charCount<0 ? "charCount" : "byteCount"),
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-            Contract.EndContractBlock();
-
-            return GetBytes(chars, charCount, bytes, byteCount, null);
+            return EncodingForwarder.GetBytes(this, chars, charCount, bytes, byteCount);
         }
 
         // Returns the number of characters produced by decoding a range of bytes
         // in a byte array.
-        //
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetCharCount(byte[] bytes, int index, int count)
+        public override int GetCharCount(byte[] bytes, int index, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException("bytes",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index<0 ? "index" : "count"),
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if (bytes.Length - index < count)
-                throw new ArgumentOutOfRangeException("bytes",
-                    Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
-            Contract.EndContractBlock();
-
-            // If no input just return 0, fixed doesn't like 0 length arrays
-            if (bytes.Length == 0)
-                return 0;
-
-            // Just call pointer version
-            fixed (byte* pBytes = bytes)
-                return GetCharCount(pBytes + index, count, null);
+            return EncodingForwarder.GetCharCount(this, bytes, index, count);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-
-        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         [System.Runtime.InteropServices.ComVisible(false)]
         public override unsafe int GetCharCount(byte* bytes, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException("bytes",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (count < 0)
-                throw new ArgumentOutOfRangeException("count",
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-            Contract.EndContractBlock();
-
-            return GetCharCount(bytes, count, null);
+            return EncodingForwarder.GetCharCount(this, bytes, count);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
-
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public override unsafe int GetChars(byte[] bytes, int byteIndex, int byteCount,
+        public override int GetChars(byte[] bytes, int byteIndex, int byteCount,
                                               char[] chars, int charIndex)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? "bytes" : "chars",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (byteIndex < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException((byteIndex<0 ? "byteIndex" : "byteCount"),
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if ( bytes.Length - byteIndex < byteCount)
-                throw new ArgumentOutOfRangeException("bytes",
-                    Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
-
-            if (charIndex < 0 || charIndex > chars.Length)
-                throw new ArgumentOutOfRangeException("charIndex",
-                    Environment.GetResourceString("ArgumentOutOfRange_Index"));
-            Contract.EndContractBlock();
-
-            // If no input, return 0 & avoid fixed problem
-            if (bytes.Length == 0)
-                return 0;
-
-            // Just call pointer version
-            int charCount = chars.Length - charIndex;
-
-            // Fixed doesn't like 0 length arrays.
-            if (chars.Length == 0)
-                chars = new char[1];
-
-            fixed (byte* pBytes = bytes)
-                fixed (char* pChars = chars)
-                    // Remember that charCount is # to decode, not size of array
-                    return GetChars(pBytes + byteIndex, byteCount,
-                                    pChars + charIndex, charCount, null);
+            return EncodingForwarder.GetChars(this, bytes, byteIndex, byteCount, chars, charIndex);
         }
 
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-
-        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         [System.Runtime.InteropServices.ComVisible(false)]
         public unsafe override int GetChars(byte* bytes, int byteCount, char* chars, int charCount)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? "bytes" : "chars",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (charCount < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException((charCount<0 ? "charCount" : "byteCount"),
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-            Contract.EndContractBlock();
-
-            return GetChars(bytes, byteCount, chars, charCount, null);
+            return EncodingForwarder.GetChars(this, bytes, byteCount, chars, charCount);
         }
 
         // Returns a string containing the decoded representation of a range of
         // bytes in a byte array.
-        //
-        // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
-        // So if you fix this, fix the others.  Currently those include:
-        // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
-        // parent method is safe
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(false)]
-        public override unsafe String GetString(byte[] bytes, int index, int count)
+        public override String GetString(byte[] bytes, int index, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException("bytes",
-                    Environment.GetResourceString("ArgumentNull_Array"));
-
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index < 0 ? "index" : "count"),
-                    Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
-
-            if (bytes.Length - index < count)
-                throw new ArgumentOutOfRangeException("bytes",
-                    Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
-            Contract.EndContractBlock();
-
-            // Avoid problems with empty input buffer
-            if (bytes.Length == 0) return String.Empty;
-
-            fixed (byte* pBytes = bytes)
-                return String.CreateStringFromEncoding(
-                    pBytes + index, count, this);
+            return EncodingForwarder.GetString(this, bytes, index, count);
         }
+        
+        // End of overridden methods which use EncodingForwarder
 
-        //
-        // End of standard methods copied from EncodingNLS.cs
-        //
-
-        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetByteCount(char* chars, int count, EncoderNLS encoder)
         {
-            Contract.Assert(chars!=null, "[UnicodeEncoding.GetByteCount]chars!=null");
-            Contract.Assert(count >= 0, "[UnicodeEncoding.GetByteCount]count >=0");
+            Debug.Assert(chars!=null, "[UnicodeEncoding.GetByteCount]chars!=null");
+            Debug.Assert(count >= 0, "[UnicodeEncoding.GetByteCount]count >=0");
 
             // Start by assuming each char gets 2 bytes
             int byteCount = count << 1;
@@ -446,7 +196,7 @@ namespace System.Text
             // (If they were all invalid chars, this would actually be wrong,
             // but that's a ridiculously large # so we're not concerned about that case)
             if (byteCount < 0)
-                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
 
             char* charStart = chars;
             char* charEnd = chars + count;
@@ -499,7 +249,7 @@ namespace System.Text
                     if ( !bigEndian &&
 #endif // BIGENDIAN
 
-#if WIN64           // 64 bit CPU needs to be long aligned for this to work.
+#if BIT64           // 64 bit CPU needs to be long aligned for this to work.
                           charLeftOver == 0 && (unchecked((long)chars) & 7) == 0)
 #else
                           charLeftOver == 0 && (unchecked((int)chars) & 3) == 0)
@@ -586,7 +336,7 @@ namespace System.Text
                             // Unwind the current character, this should be safe because we
                             // don't have leftover data in the fallback, so chars must have
                             // advanced already.
-                            Contract.Assert(chars > charStart, 
+                            Debug.Assert(chars > charStart, 
                                 "[UnicodeEncoding.GetByteCount]Expected chars to have advanced in unexpected high surrogate");
                             chars--;
 
@@ -653,7 +403,7 @@ namespace System.Text
                     // Rewind the current character, fallback previous character.
                     // this should be safe because we don't have leftover data in the
                     // fallback, so chars must have advanced already.
-                    Contract.Assert(chars > charStart, 
+                    Debug.Assert(chars > charStart, 
                         "[UnicodeEncoding.GetByteCount]Expected chars to have advanced when expected low surrogate");
                     chars--;
 
@@ -694,7 +444,7 @@ namespace System.Text
                         // Throw it, using our complete character
                         throw new ArgumentException(
                                     Environment.GetResourceString("Argument_RecursiveFallback",
-                                    charLeftOver), "chars");
+                                    charLeftOver), nameof(chars));
                     }
                     else
                     {
@@ -719,21 +469,20 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetByteCount
             // (don't have to check m_throwOnOverflow for count)
-            Contract.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetByteCount]Expected empty fallback buffer at end");
 
             // Don't remember fallbackBuffer.encoder for counting
             return byteCount;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetBytes(char* chars, int charCount,
                                                 byte* bytes, int byteCount, EncoderNLS encoder)
         {
-            Contract.Assert(chars!=null, "[UnicodeEncoding.GetBytes]chars!=null");
-            Contract.Assert(byteCount >=0, "[UnicodeEncoding.GetBytes]byteCount >=0");
-            Contract.Assert(charCount >=0, "[UnicodeEncoding.GetBytes]charCount >=0");
-            Contract.Assert(bytes!=null, "[UnicodeEncoding.GetBytes]bytes!=null");
+            Debug.Assert(chars!=null, "[UnicodeEncoding.GetBytes]chars!=null");
+            Debug.Assert(byteCount >=0, "[UnicodeEncoding.GetBytes]byteCount >=0");
+            Debug.Assert(charCount >=0, "[UnicodeEncoding.GetBytes]charCount >=0");
+            Debug.Assert(bytes!=null, "[UnicodeEncoding.GetBytes]bytes!=null");
 
             char charLeftOver = (char)0;
             char ch;
@@ -782,11 +531,11 @@ namespace System.Text
 #else
                     if ( !bigEndian &&
 #endif // BIGENDIAN
-#if WIN64           // 64 bit CPU needs to be long aligned for this to work, 32 bit CPU needs to be 32 bit aligned
+#if BIT64           // 64 bit CPU needs to be long aligned for this to work, 32 bit CPU needs to be 32 bit aligned
                         (unchecked((long)chars) & 7) == 0 && (unchecked((long)bytes) & 7) == 0 &&
 #else
                         (unchecked((int)chars) & 3) == 0 && (unchecked((int)bytes) & 3) == 0 &&
-#endif // WIN64
+#endif // BIT64
                         charLeftOver == 0)
                     {
                         // Need -1 to check 2 at a time.  If we have an even #, longChars will go
@@ -868,11 +617,11 @@ namespace System.Text
                         !bigEndian &&
 #endif // BIGENDIAN
 
-#if WIN64
+#if BIT64
                         (unchecked((long)chars) & 7) != (unchecked((long)bytes) & 7) &&  // Only do this if chars & bytes are out of line, otherwise faster loop'll be faster next time
 #else
                         (unchecked((int)chars) & 3) != (unchecked((int)bytes) & 3) &&  // Only do this if chars & bytes are out of line, otherwise faster loop'll be faster next time
-#endif // WIN64
+#endif // BIT64
                         (unchecked((int)(bytes)) & 1) == 0 )
                     {
                         // # to use
@@ -937,7 +686,7 @@ namespace System.Text
                             // Unwind the current character, this should be safe because we
                             // don't have leftover data in the fallback, so chars must have
                             // advanced already.
-                            Contract.Assert(chars > charStart, 
+                            Debug.Assert(chars > charStart, 
                                 "[UnicodeEncoding.GetBytes]Expected chars to have advanced in unexpected high surrogate");
                             chars--;
                             
@@ -1003,7 +752,7 @@ namespace System.Text
                         {
                             // If we don't have enough room, then either we should've advanced a while
                             // or we should have bytes==byteStart and throw below
-                            Contract.Assert(chars > charStart + 1 || bytes == byteStart, 
+                            Debug.Assert(chars > charStart + 1 || bytes == byteStart, 
                                 "[UnicodeEncoding.GetBytes]Expected chars to have when no room to add surrogate pair");
                             chars-=2;                                        // Didn't use either surrogate
                         }
@@ -1032,7 +781,7 @@ namespace System.Text
                     // Rewind the current character, fallback previous character.
                     // this should be safe because we don't have leftover data in the
                     // fallback, so chars must have advanced already.
-                    Contract.Assert(chars > charStart, 
+                    Debug.Assert(chars > charStart, 
                         "[UnicodeEncoding.GetBytes]Expected chars to have advanced after expecting low surrogate");
                     chars--;
 
@@ -1066,7 +815,7 @@ namespace System.Text
                     {
                         // Lonely charLeftOver (from previous call) would've been caught up above,
                         // so this must be a case where we've already read an input char.
-                        Contract.Assert(chars > charStart, 
+                        Debug.Assert(chars > charStart, 
                             "[UnicodeEncoding.GetBytes]Expected chars to have advanced for failed fallback");                        
                         chars--;                                         // Not using this char
                     }
@@ -1097,7 +846,7 @@ namespace System.Text
                         // Throw it, using our complete character
                         throw new ArgumentException(
                                     Environment.GetResourceString("Argument_RecursiveFallback",
-                                    charLeftOver), "chars");
+                                    charLeftOver), nameof(chars));
                     }
                     else
                     {
@@ -1134,10 +883,10 @@ namespace System.Text
 
             // Remember charLeftOver if we must, or clear it if we're flushing
             // (charLeftOver should be 0 if we're flushing)
-            Contract.Assert((encoder != null && !encoder.MustFlush) || charLeftOver == (char)0,
+            Debug.Assert((encoder != null && !encoder.MustFlush) || charLeftOver == (char)0,
                 "[UnicodeEncoding.GetBytes] Expected no left over characters if flushing");
 
-            Contract.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0 ||
+            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0 ||
                 encoder == null || !encoder.m_throwOnOverflow,
                 "[UnicodeEncoding.GetBytes]Expected empty fallback buffer if not converting");
 
@@ -1147,11 +896,10 @@ namespace System.Text
             return (int)(bytes - byteStart);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetCharCount(byte* bytes, int count, DecoderNLS baseDecoder)
         {
-            Contract.Assert(bytes!=null, "[UnicodeEncoding.GetCharCount]bytes!=null");
-            Contract.Assert(count >= 0, "[UnicodeEncoding.GetCharCount]count >=0");
+            Debug.Assert(bytes!=null, "[UnicodeEncoding.GetCharCount]bytes!=null");
+            Debug.Assert(count >= 0, "[UnicodeEncoding.GetCharCount]count >=0");
 
             UnicodeEncoding.Decoder decoder = (UnicodeEncoding.Decoder)baseDecoder;
 
@@ -1190,7 +938,7 @@ namespace System.Text
 
                 // Shouldn't have anything in fallback buffer for GetCharCount
                 // (don't have to check m_throwOnOverflow for count)
-                Contract.Assert(!decoder.InternalHasFallbackBuffer || decoder.FallbackBuffer.Remaining == 0,
+                Debug.Assert(!decoder.InternalHasFallbackBuffer || decoder.FallbackBuffer.Remaining == 0,
                     "[UnicodeEncoding.GetCharCount]Expected empty fallback buffer at start");
             }
 
@@ -1204,11 +952,11 @@ namespace System.Text
 #else // BIGENDIAN
                 if (!bigEndian &&
 #endif // BIGENDIAN
-#if WIN64 // win64 has to be long aligned
+#if BIT64 // win64 has to be long aligned
                     (unchecked((long)bytes) & 7) == 0 &&
 #else
                     (unchecked((int)bytes) & 3) == 0 &&
-#endif // WIN64
+#endif // BIT64
                     lastByte == -1 && lastChar == 0)
                 {
                     // Need new char* so we can check 4 at a time
@@ -1480,20 +1228,19 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetCharCount
             // (don't have to check m_throwOnOverflow for count)
-            Contract.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetCharCount]Expected empty fallback buffer at end");
 
             return charCount;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetChars(byte* bytes, int byteCount,
                                                 char* chars, int charCount, DecoderNLS baseDecoder )
         {
-            Contract.Assert(chars!=null, "[UnicodeEncoding.GetChars]chars!=null");
-            Contract.Assert(byteCount >=0, "[UnicodeEncoding.GetChars]byteCount >=0");
-            Contract.Assert(charCount >=0, "[UnicodeEncoding.GetChars]charCount >=0");
-            Contract.Assert(bytes!=null, "[UnicodeEncoding.GetChars]bytes!=null");
+            Debug.Assert(chars!=null, "[UnicodeEncoding.GetChars]chars!=null");
+            Debug.Assert(byteCount >=0, "[UnicodeEncoding.GetChars]byteCount >=0");
+            Debug.Assert(charCount >=0, "[UnicodeEncoding.GetChars]charCount >=0");
+            Debug.Assert(bytes!=null, "[UnicodeEncoding.GetChars]bytes!=null");
 
             UnicodeEncoding.Decoder decoder = (UnicodeEncoding.Decoder)baseDecoder;
 
@@ -1509,7 +1256,7 @@ namespace System.Text
 
                 // Shouldn't have anything in fallback buffer for GetChars
                 // (don't have to check m_throwOnOverflow for chars)
-                Contract.Assert(!decoder.InternalHasFallbackBuffer || decoder.FallbackBuffer.Remaining == 0,
+                Debug.Assert(!decoder.InternalHasFallbackBuffer || decoder.FallbackBuffer.Remaining == 0,
                     "[UnicodeEncoding.GetChars]Expected empty fallback buffer at start");
             }
 
@@ -1531,11 +1278,11 @@ namespace System.Text
 #else // BIGENDIAN
                 if (!bigEndian &&
 #endif // BIGENDIAN
-#if WIN64 // win64 has to be long aligned
+#if BIT64 // win64 has to be long aligned
                     (unchecked((long)chars) & 7) == 0 && (unchecked((long)bytes) & 7) == 0 &&
 #else
                     (unchecked((int)chars) & 3) == 0 && (unchecked((int)bytes) & 3) == 0 &&
-#endif // WIN64
+#endif // BIT64
                     lastByte == -1 && lastChar == 0)
                 {
                     // Need -1 to check 2 at a time.  If we have an even #, longChars will go
@@ -1667,7 +1414,7 @@ namespace System.Text
                             {
                                 // couldn't fall back lonely surrogate
                                 // We either advanced bytes or chars should == charStart and throw below
-                                Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                                Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                                     "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (bad surrogate)");
                                 bytes-=2;                                       // didn't use these 2 bytes
                                 fallbackBuffer.InternalReset();
@@ -1716,7 +1463,7 @@ namespace System.Text
                         {
                             // couldn't fall back lonely surrogate
                             // We either advanced bytes or chars should == charStart and throw below
-                            Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                            Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                                 "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (lonely surrogate)");
                             bytes-=2;                                       // didn't use these 2 bytes
                             fallbackBuffer.InternalReset();
@@ -1733,7 +1480,7 @@ namespace System.Text
                     {
                         // couldn't find room for this surrogate pair
                         // We either advanced bytes or chars should == charStart and throw below
-                        Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                        Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                             "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (surrogate pair)");
                         bytes-=2;                                       // didn't use these 2 bytes
                         ThrowCharsOverflow(decoder, chars == charStart);// Might throw, if no chars output
@@ -1775,7 +1522,7 @@ namespace System.Text
                     {
                         // couldn't fall back high surrogate, or char that would be next
                         // We either advanced bytes or chars should == charStart and throw below
-                        Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                        Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                             "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (no low surrogate)");
                         bytes-=2;                                       // didn't use these 2 bytes
                         fallbackBuffer.InternalReset();
@@ -1792,7 +1539,7 @@ namespace System.Text
                 {
                     // 2 bytes couldn't fall back
                     // We either advanced bytes or chars should == charStart and throw below
-                    Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                    Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                         "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (normal)");
                     bytes-=2;                                       // didn't use these bytes
                     ThrowCharsOverflow(decoder, chars == charStart);// Might throw, if no chars output
@@ -1837,7 +1584,7 @@ namespace System.Text
                     {
                         // 2 bytes couldn't fall back
                         // We either advanced bytes or chars should == charStart and throw below
-                        Contract.Assert(bytes >= byteStart + 2 || chars == charStart,
+                        Debug.Assert(bytes >= byteStart + 2 || chars == charStart,
                             "[UnicodeEncoding.GetChars]Expected bytes to have advanced or no output (decoder)");
                         bytes-=2;                                       // didn't use these bytes
                         if (lastByte >= 0)
@@ -1890,7 +1637,7 @@ namespace System.Text
             // Remember our decoder if we must
             if (decoder != null)
             {
-                Contract.Assert((decoder.MustFlush == false) || ((lastChar == (char)0) && (lastByte == -1)),
+                Debug.Assert((decoder.MustFlush == false) || ((lastChar == (char)0) && (lastByte == -1)),
                     "[UnicodeEncoding.GetChars] Expected no left over chars or bytes if flushing"
 //                    + " " + ((int)lastChar).ToString("X4") + " " + lastByte.ToString("X2")
                     );
@@ -1905,7 +1652,7 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetChars
             // (don't have to check m_throwOnOverflow for count or chars)
-            Contract.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetChars]Expected empty fallback buffer at end");
 
             return (int)(chars - charStart);
@@ -1943,7 +1690,7 @@ namespace System.Text
         public override int GetMaxByteCount(int charCount)
         {
             if (charCount < 0)
-               throw new ArgumentOutOfRangeException("charCount",
+               throw new ArgumentOutOfRangeException(nameof(charCount),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -1957,7 +1704,7 @@ namespace System.Text
             byteCount <<= 1;
 
             if (byteCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException("charCount", Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
+                throw new ArgumentOutOfRangeException(nameof(charCount), Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
 
             return (int)byteCount;
         }
@@ -1966,7 +1713,7 @@ namespace System.Text
         public override int GetMaxCharCount(int byteCount)
         {
             if (byteCount < 0)
-               throw new ArgumentOutOfRangeException("byteCount",
+               throw new ArgumentOutOfRangeException(nameof(byteCount),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -1981,7 +1728,7 @@ namespace System.Text
                 charCount *= DecoderFallback.MaxCharCount;
 
             if (charCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException("byteCount", Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
+                throw new ArgumentOutOfRangeException(nameof(byteCount), Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
 
             return (int)charCount;
         }
@@ -2027,7 +1774,7 @@ namespace System.Text
             internal Decoder(SerializationInfo info, StreamingContext context)
             {
                 // Any info?
-                if (info==null) throw new ArgumentNullException("info");
+                if (info==null) throw new ArgumentNullException(nameof(info));
                 Contract.EndContractBlock();
 
                 // Get Common Info
@@ -2048,13 +1795,11 @@ namespace System.Text
                 }
             }
 
-#if FEATURE_SERIALIZATION
             // ISerializable implementation, get data for this object
-            [System.Security.SecurityCritical]  // auto-generated_required
             void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
             {
                 // Any info?
-                if (info==null) throw new ArgumentNullException("info");
+                if (info==null) throw new ArgumentNullException(nameof(info));
                 Contract.EndContractBlock();
 
                 // Save Whidbey data
@@ -2066,7 +1811,6 @@ namespace System.Text
                 // Everett Only
                 info.AddValue("bigEndian", ((UnicodeEncoding)(this.m_encoding)).bigEndian);
             }
-#endif
 
             public override void Reset()
             {

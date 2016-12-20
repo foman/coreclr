@@ -1,21 +1,20 @@
 project(ClrJit)
 
-if(CLR_CMAKE_PLATFORM_ARCH_I386 OR CLR_CMAKE_PLATFORM_ARCH_ARM)
+if(CLR_CMAKE_TARGET_ARCH_ARM)
     add_definitions(-DLEGACY_BACKEND)
-endif(CLR_CMAKE_PLATFORM_ARCH_I386 OR CLR_CMAKE_PLATFORM_ARCH_ARM)
+endif(CLR_CMAKE_TARGET_ARCH_ARM)
 
 # Disable the following for UNIX altjit on Windows
 if(CLR_CMAKE_PLATFORM_UNIX)
     add_compile_options(-fPIC)
-    add_definitions(-DFEATURE_MERGE_JIT_AND_ENGINE)
 
-    add_library_clr(ClrJit
+    add_library_clr(clrjit_static
       STATIC
       ${SHARED_LIB_SOURCES}
     )
-    add_dependencies(ClrJit coreclrpal gcinfo)
+    add_dependencies(clrjit_static coreclrpal gcinfo)
 else()
-    add_library_clr(ClrJit
+    add_library_clr(clrjit_static
        ${SOURCES}
     )
 # Disable up to here (see above) the following for UNIX altjit on Windows 

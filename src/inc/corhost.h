@@ -33,9 +33,7 @@
 #endif
 #include "holder.h"
 
-#if defined(FEATURE_HOSTED_BINDER)
 #include "clrprivhosting.h"
-#endif
 
 #ifdef FEATURE_COMINTEROP
 #include "activation.h" // WinRT activation.
@@ -736,10 +734,8 @@ class CorHost2 :
     , public CLRValidator
     , public CorDebuggerInfo
     , public ICLRRuntimeHost
-#endif // FEATURE_CORECLR
-#if defined(FEATURE_HOSTED_BINDER) && !defined(FEATURE_CORECLR)
     , public ICLRPrivRuntime
-#endif
+#endif // FEATURE_CORECLR
     , public CorExecutionManager
 {
     friend struct _DacGlobals;
@@ -859,7 +855,7 @@ public:
 
 #endif // !FEATURE_CORECLR
 
-#if defined(FEATURE_HOSTED_BINDER) && !defined(FEATURE_CORECLR)
+#if !defined(FEATURE_CORECLR)
     /**********************************************************************************
      ** ICLRPrivRuntime Methods
      **********************************************************************************/
@@ -884,7 +880,7 @@ public:
         ICLRPrivBinder * pBinder,
         int * pRetVal);
 
-#endif // FEATURE_HOSTED_BINDER && !FEATURE_CORECLR
+#endif // !FEATURE_CORECLR
 
     static IHostControl *GetHostControl ()
     {
@@ -1009,14 +1005,6 @@ public:
     }
 #endif // FEATURE_INCLUDE_ALL_INTERFACES
 
-#ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-    static IHostNetCFDebugControlManager *GetHostNetCFDebugControlManager ()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_HostNetCFDebugControlManager;
-    }
-#endif
-
     static int GetHostOverlappedExtensionSize()
     {
         LIMITED_METHOD_CONTRACT;
@@ -1090,7 +1078,6 @@ private:
 
 #endif // FEATURE_CORECLR
 
-#if defined(FEATURE_CORECLR) || defined(FEATURE_HOSTED_BINDER)
     // Helpers for both ICLRRuntimeHost2 and ICLRPrivRuntime
     HRESULT _CreateAppDomain(
         LPCWSTR wszFriendlyName,
@@ -1100,7 +1087,7 @@ private:
         int nProperties, 
         LPCWSTR* pPropertyNames, 
         LPCWSTR* pPropertyValues,
-#if defined(FEATURE_HOSTED_BINDER) && !defined(FEATURE_CORECLR)
+#if !defined(FEATURE_CORECLR)
         ICLRPrivBinder* pBinder,
 #endif
         DWORD* pAppDomainID);
@@ -1111,12 +1098,9 @@ private:
         LPCWSTR wszClassName,     
         LPCWSTR wszMethodName,
         INT_PTR* fnPtr);
-#endif // defined(FEATURE_CORECLR) || defined(FEATURE_HOSTED_BINDER)
 
-#ifdef FEATURE_HOSTED_BINDER
     // entrypoint helper to be wrapped in a filter to process unhandled exceptions
     VOID ExecuteMainInner(Assembly* pRootAssembly);
-#endif // FEATURE_HOSTED_BINDER
 
     static LONG  m_RefCount;
 
@@ -1149,11 +1133,6 @@ protected:
     static BOOL m_dwFlagsFinalized;
     static DangerousNonHostedSpinLock m_FlagsLock; // protects the flags and host config
 #endif // !defined(FEATURE_CORECLR)
-
-#ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
-protected:
-    static IHostNetCFDebugControlManager *m_HostNetCFDebugControlManager;
-#endif
 
     SVAL_DECL(STARTUP_FLAGS, m_dwStartupFlags);
 };

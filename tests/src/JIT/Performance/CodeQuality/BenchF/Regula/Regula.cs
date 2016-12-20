@@ -12,7 +12,9 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-public static class Adams
+namespace Benchstone.BenchF
+{
+public static class Regula
 {
 #if DEBUG
     public const int Iterations = 1;
@@ -190,4 +192,5 @@ public static class Adams
         bool result = TestBase();
         return (result ? 100 : -1);
     }
+}
 }

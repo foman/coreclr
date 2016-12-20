@@ -12,7 +12,7 @@ namespace System {
     using System.Runtime.Remoting;
     using System.Runtime.Serialization;
     using System.Security.Permissions;
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public sealed class DBNull : ISerializable, IConvertible {
     
@@ -26,7 +26,6 @@ namespace System {
         
         public static readonly DBNull Value = new DBNull();
 
-        [System.Security.SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             UnitySerializationHolder.GetUnitySerializationInfo(info, UnitySerializationHolder.NullUnity, null, null);
         }

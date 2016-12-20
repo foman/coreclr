@@ -43,6 +43,10 @@ EXTERN_C void STDCALL PInvokeStackImbalanceHelper(void);
 EXTERN_C void STDCALL CopyCtorCallStub(void);
 #endif // !FEATURE_CORECLR
 
+#ifdef FEATURE_STUBS_AS_IL
+EXTERN_C void SinglecastDelegateInvokeStub();
+#endif // FEATURE_STUBS_AS_IL
+
 BOOL Runtime_Test_For_SSE2();
 
 #ifdef CROSSGEN_COMPILE
@@ -294,8 +298,6 @@ inline INT32 rel32UsingJumpStub(INT32 UNALIGNED * pRel32, PCODE target, MethodDe
     return (INT32)(target - baseAddr);
 }
 
-#ifndef CLR_STANDALONE_BINDER
-
 #ifdef FEATURE_COMINTEROP
 inline void emitCOMStubCall (ComCallMethodDesc *pCOMMethod, PCODE target)
 {
@@ -478,7 +480,7 @@ inline BOOL IsUnmanagedValueTypeReturnedByRef(UINT sizeofvaluetype)
 }
 
 #include <pshpack1.h>
-DECLSPEC_ALIGN(4) struct UMEntryThunkCode
+struct DECLSPEC_ALIGN(4) UMEntryThunkCode
 {
     BYTE            m_alignpad[2];  // used to guarantee alignment of backpactched portion
     BYTE            m_movEAX;   //MOV EAX,imm32
@@ -515,7 +517,7 @@ struct HijackArgs
     union
     {
         DWORD Eax;
-        size_t ReturnValue;
+        size_t ReturnValue[1];
     };
     DWORD Ebp;
     union
@@ -524,8 +526,6 @@ struct HijackArgs
         size_t ReturnAddress;
     };
 };
-
-#endif //!CLR_STANDALONE_BINDER
 
 // ClrFlushInstructionCache is used when we want to call FlushInstructionCache
 // for a specific architecture in the common code, but not for other architectures.
@@ -566,6 +566,7 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
 // #define JIT_GetSharedGCStaticBaseNoCtor
 // #define JIT_GetSharedNonGCStaticBaseNoCtor
 
+#ifndef FEATURE_PAL
 #define JIT_ChkCastClass            JIT_ChkCastClass
 #define JIT_ChkCastClassSpecial     JIT_ChkCastClassSpecial
 #define JIT_IsInstanceOfClass       JIT_IsInstanceOfClass
@@ -573,5 +574,5 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
 #define JIT_IsInstanceOfInterface   JIT_IsInstanceOfInterface
 #define JIT_NewCrossContext         JIT_NewCrossContext
 #define JIT_Stelem_Ref              JIT_Stelem_Ref
-
+#endif // FEATURE_PAL
 #endif // __cgenx86_h__

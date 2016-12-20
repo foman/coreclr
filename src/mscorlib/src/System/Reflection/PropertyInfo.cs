@@ -22,9 +22,6 @@ namespace System.Reflection
     [Serializable]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_PropertyInfo))]
-#pragma warning disable 618
-    [PermissionSetAttribute(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-#pragma warning restore 618
     [System.Runtime.InteropServices.ComVisible(true)]
     public abstract class PropertyInfo : MemberInfo, _PropertyInfo
     {
@@ -32,7 +29,6 @@ namespace System.Reflection
         protected PropertyInfo() { }
         #endregion
 
-#if !FEATURE_CORECLR
         public static bool operator ==(PropertyInfo left, PropertyInfo right)
         {
             if (ReferenceEquals(left, right))
@@ -50,7 +46,6 @@ namespace System.Reflection
         {
             return !(left == right);
         }
-#endif // !FEATURE_CORECLR
 
         public override bool Equals(object obj)
         {
@@ -155,35 +150,6 @@ namespace System.Reflection
 
         public bool IsSpecialName { get { return(Attributes & PropertyAttributes.SpecialName) != 0; } }
         #endregion
-
-#if !FEATURE_CORECLR
-        Type _PropertyInfo.GetType()
-        {
-            return base.GetType();
-        }
-
-        void _PropertyInfo.GetTypeInfoCount(out uint pcTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _PropertyInfo.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _PropertyInfo.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
-        {
-            throw new NotImplementedException();
-        }
-
-        // If you implement this method, make sure to include _PropertyInfo.Invoke in VM\DangerousAPIs.h and 
-        // include _PropertyInfo in SystemDomain::IsReflectionInvocationMethod in AppDomain.cpp.
-        void _PropertyInfo.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
-        {
-            throw new NotImplementedException();
-        }
-#endif
     }
 
     [Serializable]
@@ -192,7 +158,6 @@ namespace System.Reflection
         #region Private Data Members
         private int m_token;
         private string m_name;
-        [System.Security.SecurityCritical]
         private void* m_utf8name;
         private PropertyAttributes m_flags;
         private RuntimeTypeCache m_reflectedTypeCache;
@@ -206,13 +171,12 @@ namespace System.Reflection
         #endregion
 
         #region Constructor
-        [System.Security.SecurityCritical]  // auto-generated
         internal RuntimePropertyInfo(
             int tkProperty, RuntimeType declaredType, RuntimeTypeCache reflectedTypeCache, out bool isPrivate)
         {
             Contract.Requires(declaredType != null);
             Contract.Requires(reflectedTypeCache != null);
-            Contract.Assert(!reflectedTypeCache.IsGlobal);
+            Debug.Assert(!reflectedTypeCache.IsGlobal);
 
             MetadataImport scope = declaredType.GetRuntimeModule().MetadataImport;
 
@@ -247,7 +211,6 @@ namespace System.Reflection
 
         internal Signature Signature
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 if (m_signature == null)
@@ -295,52 +258,10 @@ namespace System.Reflection
             Contract.Requires(this != target);
             Contract.Requires(this.ReflectedType == target.ReflectedType);
 
-
-#if FEATURE_LEGACYNETCF
-            if (CompatibilitySwitches.IsAppEarlierThanWindowsPhone8)
-                return Signature.CompareSigForAppCompat(this.Signature, this.m_declaringType,
-                                                        target.Signature, target.m_declaringType);
-#endif
             return Signature.CompareSig(this.Signature, target.Signature);
         }
         internal BindingFlags BindingFlags { get { return m_bindingFlags; } }
         #endregion
-
-#if FEATURE_LEGACYNETCF
-        // BEGIN helper methods for Dev11 466969 quirk
-        internal bool HasMatchingAccessibility(RuntimePropertyInfo target)
-        {
-            Contract.Assert(CompatibilitySwitches.IsAppEarlierThanWindowsPhone8);
-            bool match = true;
-            
-            if (!IsMatchingAccessibility(this.GetGetMethod(true), target.GetGetMethod(true)))
-            {
-                match = false;
-            }
-            else if (!IsMatchingAccessibility(this.GetSetMethod(true), target.GetSetMethod(true)))
-            {
-                match = false;
-            }
-
-            return match;
-        }
-
-        private bool IsMatchingAccessibility(MethodInfo lhsInfo, MethodInfo rhsInfo)
-        {
-            if (lhsInfo != null && rhsInfo != null)
-            {
-                return lhsInfo.IsPublic == rhsInfo.IsPublic;
-            }
-            else
-            {
-                // don't be tempted to return false here!  we only want to introduce
-                // the quirk behavior when we know that the accessibility is different.
-                // in all other cases return true so the code works as before.
-                return true;
-            }
-        }
-        // END helper methods for Dev11 466969 quirk
-#endif
 
         #region Object Overrides
         public override String ToString()
@@ -376,28 +297,27 @@ namespace System.Reflection
         public override Object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException("attributeType");
+                throw new ArgumentNullException(nameof(attributeType));
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsDefined(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException("attributeType");
+                throw new ArgumentNullException(nameof(attributeType));
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
 
             return CustomAttribute.IsDefined(this, attributeRuntimeType);
         }
@@ -412,7 +332,6 @@ namespace System.Reflection
         public override MemberTypes MemberType { get { return MemberTypes.Property; } }
         public override String Name 
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get 
             {
                 if (m_name == null)
@@ -465,7 +384,6 @@ namespace System.Reflection
             return Signature.GetCustomModifiers(0, false);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         internal object GetConstantValue(bool raw)
         {
             Object defaultValue = MdConstant.GetValue(GetRuntimeModule().MetadataImport, m_token, PropertyType.GetTypeHandleInternal(), raw);
@@ -674,11 +592,10 @@ namespace System.Reflection
         #endregion
 
         #region ISerializable Implementation
-        [System.Security.SecurityCritical]  // auto-generated
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
 
             MemberInfoSerializationHolder.GetSerializationInfo(

@@ -19,7 +19,7 @@
 #include "comutilnative.h"
 #include "sigformat.h"
 #include "siginfo.hpp"
-#include "gc.h"
+#include "gcheaputilities.h"
 #include "eedbginterfaceimpl.h" //so we can clearexception in COMPlusThrow
 #include "perfcounters.h"
 #include "eventtrace.h"
@@ -53,13 +53,15 @@ VOID STDCALL ResumeAtJitEHHelper(EHContext *pContext);
 int STDCALL CallJitEHFilterHelper(size_t *pShadowSP, EHContext *pContext);
 VOID STDCALL CallJitEHFinallyHelper(size_t *pShadowSP, EHContext *pContext);
 
+typedef void (*RtlUnwindCallbackType)(void);
+
 BOOL CallRtlUnwind(EXCEPTION_REGISTRATION_RECORD *pEstablisherFrame,
-           void *callback,
+           RtlUnwindCallbackType callback,
            EXCEPTION_RECORD *pExceptionRecord,
            void *retval);
 
 BOOL CallRtlUnwindSafe(EXCEPTION_REGISTRATION_RECORD *pEstablisherFrame,
-           void *callback,
+           RtlUnwindCallbackType callback,
            EXCEPTION_RECORD *pExceptionRecord,
            void *retval);
 }
@@ -371,6 +373,7 @@ CPFH_AdjustContextForThreadSuspensionRace(CONTEXT *pContext, Thread *pThread)
 {
     WRAPPER_NO_CONTRACT;
 
+#ifndef FEATURE_PAL
     PCODE f_IP = GetIP(pContext);
     if (Thread::IsAddrOfRedirectFunc((PVOID)f_IP)) {
 
@@ -427,22 +430,13 @@ CPFH_AdjustContextForThreadSuspensionRace(CONTEXT *pContext, Thread *pThread)
         SetIP(pContext, GetIP(pThread->m_OSContext) - 1);
         STRESS_LOG1(LF_EH, LL_INFO100, "CPFH_AdjustContextForThreadSuspensionRace: Case 4 setting IP = %x\n", pContext->Eip);
     }
+#else
+    PORTABILITY_ASSERT("CPFH_AdjustContextForThreadSuspensionRace");
+#endif
 }
 #endif // FEATURE_HIJACK
 
 
-// We want to leave true null reference exceptions alone.  But if we are
-// trashing memory, we don't want the application to swallow it.  The 0x100
-// below will give us false positives for debugging, if the app is accessing
-// a field more than 256 bytes down an object, where the reference is null.
-//
-// Removed use of the IgnoreUnmanagedExceptions reg key...simply return false now.
-//
-static inline BOOL
-CPFH_ShouldIgnoreException(EXCEPTION_RECORD *pExceptionRecord) {
-    LIMITED_METHOD_CONTRACT;
-     return FALSE;
-}
 
 static inline void
 CPFH_UpdatePerformanceCounters() {
@@ -620,7 +614,7 @@ EXCEPTION_DISPOSITION ClrDebuggerDoUnwindAndIntercept(EXCEPTION_REGISTRATION_REC
 // This rethrow issue does not affect COMPLUS exceptions since we always create a brand new exception
 // record for them in RaiseTheExceptionInternalOnly.
 BOOL CallRtlUnwindSafe(EXCEPTION_REGISTRATION_RECORD *pEstablisherFrame,
-           void *callback,
+           RtlUnwindCallbackType callback,
            EXCEPTION_RECORD *pExceptionRecord,
            void *retval)
 {
@@ -1153,6 +1147,7 @@ CPFH_RealFirstPassHandler(                  // ExceptionContinueSearch, etc.
 
     pExInfo->m_pExceptionPointers = &exceptionPointers;
 
+#ifndef FEATURE_PAL
     if (bRethrownException || bNestedException)
     {
         _ASSERTE(pExInfo->m_pPrevNestedInfo != NULL);
@@ -1161,6 +1156,7 @@ CPFH_RealFirstPassHandler(                  // ExceptionContinueSearch, etc.
         SetStateForWatsonBucketing(bRethrownException, pExInfo->GetPreviousExceptionTracker()->GetThrowableAsHandle());
         END_SO_INTOLERANT_CODE;
     }
+#endif
 
 #ifdef DEBUGGING_SUPPORTED
     //
@@ -1975,11 +1971,17 @@ PTR_CONTEXT GetCONTEXTFromRedirectedStubStackFrame(CONTEXT * pContext)
 }
 
 #if !defined(DACCESS_COMPILE)
+#ifdef FEATURE_PAL
+static PEXCEPTION_REGISTRATION_RECORD CurrentSEHRecord = EXCEPTION_CHAIN_END;
+#endif
 
 PEXCEPTION_REGISTRATION_RECORD GetCurrentSEHRecord()
 {
     WRAPPER_NO_CONTRACT;
 
+#ifdef FEATURE_PAL
+    LPVOID fs0 = CurrentSEHRecord;
+#else  // FEATURE_PAL
     LPVOID fs0 = (LPVOID)__readfsdword(0);
 
 #if 0  // This walk is too expensive considering we hit it every time we a CONTRACT(NOTHROW)
@@ -2010,19 +2012,39 @@ PEXCEPTION_REGISTRATION_RECORD GetCurrentSEHRecord()
         pEHR = pEHR->Next;
     }
 #endif
-#endif
+#endif // 0
+#endif // FEATURE_PAL
 
     return (EXCEPTION_REGISTRATION_RECORD*) fs0;
 }
 
+#ifdef FEATURE_PAL
+VOID SetSEHRecord(PEXCEPTION_REGISTRATION_RECORD record)
+{
+    WRAPPER_NO_CONTRACT;
+    record->Next = CurrentSEHRecord;
+    CurrentSEHRecord = record;
+}
+
+VOID ResetSEHRecord(PEXCEPTION_REGISTRATION_RECORD record)
+{
+    CurrentSEHRecord = record->Next;
+}
+#endif // FEATURE_PAL
+
 PEXCEPTION_REGISTRATION_RECORD GetFirstCOMPlusSEHRecord(Thread *pThread) {
     WRAPPER_NO_CONTRACT;
+#ifndef FEATURE_PAL
     EXCEPTION_REGISTRATION_RECORD *pEHR = *(pThread->GetExceptionListPtr());
     if (pEHR == EXCEPTION_CHAIN_END || IsUnmanagedToManagedSEHHandler(pEHR)) {
         return pEHR;
     } else {
         return GetNextCOMPlusSEHRecord(pEHR);
     }
+#else   // FEATURE_PAL
+    PORTABILITY_ASSERT("GetFirstCOMPlusSEHRecord");
+    return NULL;
+#endif  // FEATURE_PAL
 }
 
 
@@ -2048,7 +2070,11 @@ PEXCEPTION_REGISTRATION_RECORD GetPrevSEHRecord(EXCEPTION_REGISTRATION_RECORD *n
 VOID SetCurrentSEHRecord(EXCEPTION_REGISTRATION_RECORD *pSEH)
 {
     WRAPPER_NO_CONTRACT;
+#ifndef FEATURE_PAL
     *GetThread()->GetExceptionListPtr() = pSEH;
+#else  // FEATURE_PAL
+    _ASSERTE("NYI");
+#endif // FEATURE_PAL
 }
 
 
@@ -2085,6 +2111,7 @@ BOOL PopNestedExceptionRecords(LPVOID pTargetSP, BOOL bCheckForUnknownHandlers)
     STATIC_CONTRACT_GC_NOTRIGGER;
     STATIC_CONTRACT_SO_TOLERANT;
 
+#ifndef FEATURE_PAL
     PEXCEPTION_REGISTRATION_RECORD pEHR = GetCurrentSEHRecord();
 
     while ((LPVOID)pEHR < pTargetSP)
@@ -2140,6 +2167,10 @@ BOOL PopNestedExceptionRecords(LPVOID pTargetSP, BOOL bCheckForUnknownHandlers)
         SetCurrentSEHRecord(pEHR);
     }
     return FALSE;
+#else   // FEATURE_PAL
+    PORTABILITY_ASSERT("PopNestedExceptionRecords");
+    return FALSE;
+#endif  // FEATURE_PAL
 }
 
 //
@@ -2245,6 +2276,7 @@ int COMPlusThrowCallbackHelper(IJitManager *pJitManager,
     int iFilt = 0;
     BOOL impersonating = FALSE;
 
+#ifndef FEATURE_PAL
     EX_TRY
     {
         GCPROTECT_BEGIN (throwable);
@@ -2295,6 +2327,10 @@ int COMPlusThrowCallbackHelper(IJitManager *pJitManager,
     EX_END_CATCH(SwallowAllExceptions)
 
     return iFilt;
+#else   // FEATURE_PAL
+    PORTABILITY_ASSERT("COMPlusThrowCallbackHelper");
+    return EXCEPTION_CONTINUE_SEARCH;
+#endif  // FEATURE_PAL
 }
 
 //******************************************************************************
@@ -2409,6 +2445,7 @@ StackWalkAction COMPlusThrowCallback(       // SWA value
         pData->bSkipLastElement = FALSE;
     }
 
+#ifndef FEATURE_PAL
     // Check for any impersonation on the frame and save that for use during EH filter callbacks
     OBJECTREF* pRefSecDesc = pCf->GetAddrOfSecurityObject();
     if (pRefSecDesc != NULL && *pRefSecDesc != NULL)
@@ -2427,6 +2464,7 @@ StackWalkAction COMPlusThrowCallback(       // SWA value
             }
         }
     }
+#endif // !FEATURE_PAL
 
     // now we've got the stack trace, if we aren't allowed to catch this and we're first pass, return
     if (pData->bDontCatch)
@@ -2604,9 +2642,9 @@ StackWalkAction COMPlusThrowCallback(       // SWA value
         // EX_CATCH just above us.  If not, the exception
         if (   IsFilterHandler(&EHClause)
             && (   offs > EHClause.FilterOffset
-                || offs == EHClause.FilterOffset && !start_adjust)
+                || (offs == EHClause.FilterOffset && !start_adjust) )
             && (   offs < EHClause.HandlerStartPC
-                || offs == EHClause.HandlerStartPC && !end_adjust)) {
+                || (offs == EHClause.HandlerStartPC && !end_adjust) )) {
 
             STRESS_LOG4(LF_EH, LL_INFO100, "COMPlusThrowCallback: Fault inside filter [%d,%d] startAdj %d endAdj %d\n",
                         EHClause.FilterOffset, EHClause.HandlerStartPC, start_adjust, end_adjust);
@@ -2978,9 +3016,9 @@ StackWalkAction COMPlusUnwindCallback (CrawlFrame *pCf, ThrowCallbackType *pData
 
         if (   IsFilterHandler(&EHClause)
             && (   offs > EHClause.FilterOffset
-                || offs == EHClause.FilterOffset && !start_adjust)
+                || (offs == EHClause.FilterOffset && !start_adjust) )
             && (   offs < EHClause.HandlerStartPC
-                || offs == EHClause.HandlerStartPC && !end_adjust)
+                || (offs == EHClause.HandlerStartPC && !end_adjust) )
             ) {
             STRESS_LOG4(LF_EH, LL_INFO100, "COMPlusUnwindCallback: Fault inside filter [%d,%d] startAdj %d endAdj %d\n",
                         EHClause.FilterOffset, EHClause.HandlerStartPC, start_adjust, end_adjust);
@@ -3731,4 +3769,10 @@ AdjustContextForVirtualStub(
     return TRUE;
 }
 
+#ifdef FEATURE_PAL
+VOID DECLSPEC_NORETURN DispatchManagedException(PAL_SEHException& ex, bool isHardwareException)
+{
+    UNREACHABLE();
+}
+#endif
 #endif // !DACCESS_COMPILE

@@ -16,10 +16,6 @@ namespace System {
     using System;
     using System.Reflection;
     using System.Runtime.Remoting;
-#if FEATURE_REMOTING    
-    using System.Runtime.Remoting.Activation;
-    using Message = System.Runtime.Remoting.Messaging.Message;
-#endif
     using System.Security;
     using CultureInfo = System.Globalization.CultureInfo;
     using Evidence = System.Security.Policy.Evidence;
@@ -34,7 +30,7 @@ namespace System {
     // Only statics, does not need to be marked with the serializable attribute
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_Activator))]
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     public sealed class Activator : _Activator
     {
         internal const int LookupMask                 = 0x000000FF;
@@ -60,7 +56,6 @@ namespace System {
             return CreateInstance(type, bindingAttr, binder, args, culture, null);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         static public Object CreateInstance(Type type,
                                             BindingFlags bindingAttr,
@@ -70,7 +65,7 @@ namespace System {
                                             Object[] activationAttributes)
         {
             if ((object)type == null)
-                throw new ArgumentNullException("type");
+                throw new ArgumentNullException(nameof(type));
             Contract.EndContractBlock();
 
             if (type is System.Reflection.Emit.TypeBuilder)
@@ -81,26 +76,13 @@ namespace System {
                 bindingAttr |= Activator.ConstructorDefault;
 
             if (activationAttributes != null && activationAttributes.Length > 0){
-                // If type does not derive from MBR
-                // throw notsupportedexception
-#if FEATURE_REMOTING                
-                if(type.IsMarshalByRef){
-                    // The fix below is preventative.
-                    //
-                    if(!(type.IsContextful)){
-                        if(activationAttributes.Length > 1 || !(activationAttributes[0] is UrlAttribute))
-                           throw new NotSupportedException(Environment.GetResourceString("NotSupported_NonUrlAttrOnMBR"));
-                    }
-                }
-                else
-#endif                    
-                    throw new NotSupportedException(Environment.GetResourceString("NotSupported_ActivAttrOnNonMBR" ));
+                throw new PlatformNotSupportedException(Environment.GetResourceString("NotSupported_ActivAttr" ));
             }
 
             RuntimeType rt = type.UnderlyingSystemType as RuntimeType;
 
             if (rt == null)
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"type");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"), nameof(type));
 
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return rt.CreateInstanceImpl(bindingAttr,binder,args,culture,activationAttributes, ref stackMark);
@@ -138,7 +120,6 @@ namespace System {
          * types to be created remotely without having to load the type locally.
          */
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         static public ObjectHandle CreateInstance(String assemblyName,
                                                   String typeName)
@@ -156,7 +137,6 @@ namespace System {
                                   ref stackMark);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable                                                  
         static public ObjectHandle CreateInstance(String assemblyName,
                                                   String typeName,
@@ -180,13 +160,13 @@ namespace System {
         static public Object CreateInstance(Type type, bool nonPublic)
         {
             if ((object)type == null)
-                throw new ArgumentNullException("type");
+                throw new ArgumentNullException(nameof(type));
             Contract.EndContractBlock();
 
             RuntimeType rt = type.UnderlyingSystemType as RuntimeType;
 
             if (rt == null)
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"), "type");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"), nameof(type));
 
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return rt.CreateInstanceDefaultCtor(!nonPublic, false, true, ref stackMark);
@@ -205,20 +185,6 @@ namespace System {
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
 
             // Skip the CreateInstanceCheckThis call to avoid perf cost and to maintain compatibility with V2 (throwing the same exceptions).
-#if FEATURE_CORECLR
-            // In SL2/3 CreateInstance<T> doesn't do any security checks. This would mean that Assembly B can create instances of an internal
-            // type in Assembly A upon A's request:
-            //      TypeInAssemblyA.DoWork() { AssemblyB.Create<InternalTypeInAssemblyA>();}
-            //      TypeInAssemblyB.Create<T>() {return new T();}
-            // This violates type safety but we saw multiple user apps that have put a dependency on it. So for compatibility we allow this if
-            // the SL app was built against SL2/3.
-            // Note that in SL2/3 it is possible for app code to instantiate public transparent types with public critical default constructors.
-            // Fortunately we don't have such types in out platform assemblies.
-            if (CompatibilitySwitches.IsAppEarlierThanSilverlight4 ||
-                CompatibilitySwitches.IsAppEarlierThanWindowsPhone8)
-                return (T)rt.CreateInstanceSlow(true /*publicOnly*/, true /*skipCheckThis*/, false /*fillCache*/, ref stackMark);
-            else
-#endif // FEATURE_CORECLR
             return (T)rt.CreateInstanceDefaultCtor(true /*publicOnly*/, true /*skipCheckThis*/, true /*fillCache*/, ref stackMark);
         }
 
@@ -244,7 +210,6 @@ namespace System {
                                       activationAttributes);
         }
                                   
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         [Obsolete("Methods which use evidence to sandbox are obsolete and will be removed in a future release of the .NET Framework. Please use an overload of CreateInstance which does not take an Evidence parameter. See http://go.microsoft.com/fwlink/?LinkID=155570 for more information.")]
         static public ObjectHandle CreateInstance(String assemblyName, 
@@ -270,7 +235,6 @@ namespace System {
                                   ref stackMark);
         }
 
-        [SecuritySafeCritical]
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static ObjectHandle CreateInstance(string assemblyName,
                                                   string typeName,
@@ -294,7 +258,6 @@ namespace System {
                                   ref stackMark);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         static internal ObjectHandle CreateInstance(String assemblyString, 
                                                     String typeName, 
                                                     bool ignoreCase,
@@ -306,13 +269,6 @@ namespace System {
                                                     Evidence securityInfo,
                                                     ref StackCrawlMark stackMark)
         {
-#if FEATURE_CAS_POLICY
-            if (securityInfo != null && !AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled)
-            {
-                throw new NotSupportedException(Environment.GetResourceString("NotSupported_RequiresCasPolicyImplicit"));
-            }
-#endif // FEATURE_CAS_POLICY
-
             Type type = null;
             Assembly assembly = null;
             if (assemblyString == null) {
@@ -370,13 +326,6 @@ namespace System {
                                                       Evidence securityInfo)
                                                
         {
-#if FEATURE_CAS_POLICY
-            if (securityInfo != null && !AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled)
-            {
-                throw new NotSupportedException(Environment.GetResourceString("NotSupported_RequiresCasPolicyImplicit"));
-            }
-#endif // FEATURE_CAS_POLICY
-
             return CreateInstanceFromInternal(assemblyFile,
                                               typeName,
                                               ignoreCase,
@@ -418,10 +367,6 @@ namespace System {
                                                                Object[] activationAttributes,
                                                                Evidence securityInfo)
         {
-#if FEATURE_CAS_POLICY
-            Contract.Assert(AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled || securityInfo == null);
-#endif // FEATURE_CAS_POLICY
-
 #pragma warning disable 618
             Assembly assembly = Assembly.LoadFrom(assemblyFile, securityInfo);
 #pragma warning restore 618
@@ -450,15 +395,13 @@ namespace System {
         // to pass the security checks when activating the type.
         //
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public static ObjectHandle CreateInstance (AppDomain domain, string assemblyName, string typeName) {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
             return domain.InternalCreateInstanceWithNoSecurity(assemblyName, typeName);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         [Obsolete("Methods which use evidence to sandbox are obsolete and will be removed in a future release of the .NET Framework. Please use an overload of CreateInstance which does not take an Evidence parameter. See http://go.microsoft.com/fwlink/?LinkID=155570 for more information.")]
         public static ObjectHandle CreateInstance (AppDomain domain,
                                                    string assemblyName,
@@ -471,20 +414,12 @@ namespace System {
                                                    Object[] activationAttributes,
                                                    Evidence securityAttributes) {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
-
-#if FEATURE_CAS_POLICY
-            if (securityAttributes != null && !AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled)
-            {
-                throw new NotSupportedException(Environment.GetResourceString("NotSupported_RequiresCasPolicyImplicit"));
-            }
-#endif // FEATURE_CAS_POLICY
 
             return domain.InternalCreateInstanceWithNoSecurity(assemblyName, typeName, ignoreCase, bindingAttr, binder, args, culture, activationAttributes, securityAttributes);
         }
 
-        [SecurityCritical]
         public static ObjectHandle CreateInstance(AppDomain domain,
                                                   string assemblyName,
                                                   string typeName,
@@ -496,7 +431,7 @@ namespace System {
                                                   object[] activationAttributes)
         {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
 
             return domain.InternalCreateInstanceWithNoSecurity(assemblyName,
@@ -517,15 +452,13 @@ namespace System {
         // to pass the security checks when activating the type.
         //
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public static ObjectHandle CreateInstanceFrom (AppDomain domain, string assemblyFile, string typeName) {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
             return domain.InternalCreateInstanceFromWithNoSecurity(assemblyFile, typeName);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         [Obsolete("Methods which use Evidence to sandbox are obsolete and will be removed in a future release of the .NET Framework. Please use an overload of CreateInstanceFrom which does not take an Evidence parameter. See http://go.microsoft.com/fwlink/?LinkID=155570 for more information.")]
         public static ObjectHandle CreateInstanceFrom (AppDomain domain,
                                                        string assemblyFile,
@@ -538,20 +471,12 @@ namespace System {
                                                        Object[] activationAttributes,
                                                        Evidence securityAttributes) {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
-
-#if FEATURE_CAS_POLICY
-            if (securityAttributes != null && !AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled)
-            {
-                throw new NotSupportedException(Environment.GetResourceString("NotSupported_RequiresCasPolicyImplicit"));
-            }
-#endif // FEATURE_CAS_POLICY
 
             return domain.InternalCreateInstanceFromWithNoSecurity(assemblyFile, typeName, ignoreCase, bindingAttr, binder, args, culture, activationAttributes, securityAttributes);
         }
 
-        [SecurityCritical]
         public static ObjectHandle CreateInstanceFrom(AppDomain domain,
                                                       string assemblyFile,
                                                       string typeName,
@@ -563,7 +488,7 @@ namespace System {
                                                       object[] activationAttributes)
         {
             if (domain == null)
-                throw new ArgumentNullException("domain");
+                throw new ArgumentNullException(nameof(domain));
             Contract.EndContractBlock();
 
             return domain.InternalCreateInstanceFromWithNoSecurity(assemblyFile,
@@ -576,30 +501,9 @@ namespace System {
                                                                    activationAttributes,
                                                                    null);
         }
-#if FEATURE_COMINTEROP
-
-#if FEATURE_CLICKONCE
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public static ObjectHandle CreateInstance (ActivationContext activationContext) {
-            AppDomainManager domainManager = AppDomain.CurrentDomain.DomainManager;
-            if (domainManager == null)
-                domainManager = new AppDomainManager();
-
-            return domainManager.ApplicationActivator.CreateInstance(activationContext);
-        }
-
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        public static ObjectHandle CreateInstance (ActivationContext activationContext, string[] activationCustomData) {
-            AppDomainManager domainManager = AppDomain.CurrentDomain.DomainManager;
-            if (domainManager == null)
-                domainManager = new AppDomainManager();
-
-            return domainManager.ApplicationActivator.CreateInstance(activationContext, activationCustomData);
-        }
-#endif // FEATURE_CLICKONCE
 
         public static ObjectHandle CreateComInstanceFrom(String assemblyName,
-                                                         String typeName)                                         
+                                                         String typeName)
         {
             return CreateComInstanceFrom(assemblyName,
                                          typeName,
@@ -644,41 +548,12 @@ namespace System {
                 return Handle;
             }
         }
-#endif // FEATURE_COMINTEROP                                  
-
-#if FEATURE_REMOTING
-        //  This method is a helper method and delegates to the remoting 
-        //  services to do the actual work. 
-        [System.Security.SecurityCritical]  // auto-generated_required
-        static public Object GetObject(Type type, String url)
-        {
-            return GetObject(type, url, null);
-        }
-        
-        //  This method is a helper method and delegates to the remoting 
-        //  services to do the actual work. 
-        [System.Security.SecurityCritical]  // auto-generated_required
-        static public Object GetObject(Type type, String url, Object state)
-        {
-            if (type == null)
-                throw new ArgumentNullException("type");
-            Contract.EndContractBlock();
-            return RemotingServices.Connect(type, url, state);
-        }
-#endif
 
         [System.Diagnostics.Conditional("_DEBUG")]
         private static void Log(bool test, string title, string success, string failure)
         {
-#if FEATURE_REMOTING
-            if(test)
-                BCLDebug.Trace("REMOTE", "{0}{1}", title, success);
-            else
-                BCLDebug.Trace("REMOTE", "{0}{1}", title, failure);
-#endif            
         }
 
-#if !FEATURE_CORECLR
         void _Activator.GetTypeInfoCount(out uint pcTInfo)
         {
             throw new NotImplementedException();
@@ -700,7 +575,6 @@ namespace System {
         {
             throw new NotImplementedException();
         }
-#endif
     }
 }
 

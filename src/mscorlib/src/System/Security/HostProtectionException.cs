@@ -23,7 +23,8 @@ namespace System.Security
     using System.Diagnostics.Contracts;
 
     [System.Runtime.InteropServices.ComVisible(true)]
-    [Serializable] public class HostProtectionException : SystemException
+    [Serializable]
+    public class HostProtectionException : SystemException
     {
         private HostProtectionResource m_protected;
         private HostProtectionResource m_demanded;
@@ -52,7 +53,7 @@ namespace System.Security
         protected HostProtectionException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
             if (info==null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
 
             m_protected = (HostProtectionResource)info.GetValue(ProtectedResourcesName, typeof(HostProtectionResource));
@@ -119,11 +120,10 @@ namespace System.Security
 
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info==null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
 
             base.GetObjectData( info, context );

@@ -10,12 +10,12 @@ namespace System.Globalization {
     using System.Collections.Generic;
     using System.Threading;
     using System.Security;
-    using System.Security.Principal;
     using System.Security.Permissions;
     using System.Runtime.CompilerServices;
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.Versioning;
     using System.IO;
+    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     
@@ -33,10 +33,9 @@ namespace System.Globalization {
         // Instance data members and instance methods.
         //
         // ----------------------------------------------------------------------------------------------------
-        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe static byte* GetGlobalizationResourceBytePtr(Assembly assembly, String tableName) {
-            Contract.Assert(assembly != null, "assembly can not be null.  This should be generally the mscorlib.dll assembly.");
-            Contract.Assert(tableName != null, "table name can not be null");
+            Debug.Assert(assembly != null, "assembly can not be null.  This should be generally the "+System.CoreLib.Name+" assembly.");
+            Debug.Assert(tableName != null, "table name can not be null");
             
             Stream stream = assembly.GetManifestResourceStream(tableName);
             UnmanagedMemoryStream bytesStream = stream as UnmanagedMemoryStream;
@@ -47,7 +46,7 @@ namespace System.Globalization {
                 }
             }
             
-            Contract.Assert(
+            Debug.Assert(
                     false, 
                     String.Format(
                         CultureInfo.CurrentCulture,

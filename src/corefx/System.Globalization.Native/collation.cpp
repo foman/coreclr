@@ -8,12 +8,10 @@
 #include <stdint.h>
 #include <vector>
 #include <map>
-#include <unicode/uchar.h>
-#include <unicode/ucol.h>
-#include <unicode/usearch.h>
-#include <unicode/utf16.h>
 
-#include "config.h"
+#include "icushim.h"
+#include "locale.hpp"
+#include "errors.h"
 
 const int32_t CompareOptionsIgnoreCase = 0x1;
 const int32_t CompareOptionsIgnoreNonSpace = 0x2;
@@ -295,24 +293,70 @@ UCollator* CloneCollatorWithOptions(const UCollator* pCollator, int32_t options,
     return pClonedCollator;
 }
 
-extern "C" SortHandle* GlobalizationNative_GetSortHandle(const char* lpLocaleName)
+// Returns TRUE if all the collation elements in str are completely ignorable
+bool CanIgnoreAllCollationElements(const UCollator* pColl, const UChar* lpStr, int32_t length)
 {
-    SortHandle* pSortHandle = new SortHandle();
+    bool result = false;
+    UErrorCode err = U_ZERO_ERROR;
+    UCollationElements* pCollElem = ucol_openElements(pColl, lpStr, length, &err);
+
+    if (U_SUCCESS(err))
+    {
+        int32_t curCollElem = UCOL_NULLORDER;
+
+        result = true;
+
+        while ((curCollElem = ucol_next(pCollElem, &err)) != UCOL_NULLORDER)
+        {
+            if (curCollElem != 0)
+            {
+                result = false;
+                break;
+            }
+        }
+
+        if (U_FAILURE(err))
+        {
+            result = false;
+        }
+
+        ucol_closeElements(pCollElem);
+    }
+
+    return result;
+
+}
+
+extern "C" int32_t GlobalizationNative_GetSortVersion()
+{
+    // we didn't use UCOL_TAILORINGS_VERSION because it is deprecated in ICU v5
+    return UCOL_RUNTIME_VERSION << 16 | UCOL_BUILDER_VERSION;
+}
+
+extern "C" ResultCode GlobalizationNative_GetSortHandle(const char* lpLocaleName, SortHandle** ppSortHandle)
+{
+    assert(ppSortHandle != nullptr);
+    
+    *ppSortHandle = new (std::nothrow) SortHandle();
+    if ((*ppSortHandle) == nullptr)
+    {
+        return GetResultCode(U_MEMORY_ALLOCATION_ERROR);
+    }
 
     UErrorCode err = U_ZERO_ERROR;
 
-    pSortHandle->regular = ucol_open(lpLocaleName, &err);
+    (*ppSortHandle)->regular = ucol_open(lpLocaleName, &err);
 
     if (U_FAILURE(err))
     {
-        if (pSortHandle->regular != nullptr)
-              ucol_close(pSortHandle->regular);
+        if ((*ppSortHandle)->regular != nullptr)
+            ucol_close((*ppSortHandle)->regular);
 
-        delete pSortHandle;
-        pSortHandle = nullptr;
+        delete (*ppSortHandle);
+        (*ppSortHandle) = nullptr;
     }
 
-    return pSortHandle;
+    return GetResultCode(err);
 }
 
 extern "C" void GlobalizationNative_CloseSortHandle(SortHandle* pSortHandle)
@@ -551,32 +595,7 @@ extern "C" int32_t GlobalizationNative_StartsWith(
                 }
                 else
                 {
-                    UCollationElements* pCollElem = ucol_openElements(pColl, lpSource, idx, &err);
-
-                    if (U_SUCCESS(err))
-                    {
-                        int32_t curCollElem = UCOL_NULLORDER;
-
-                        result = TRUE;
-
-                        while ((curCollElem = ucol_next(pCollElem, &err)) != UCOL_NULLORDER)
-                        {
-                            if (curCollElem != 0)
-                            {
-                                // Non ignorable collation element found between start of the
-                                // string and the first match for lpTarget.
-                                result = FALSE;
-                                break;
-                            }
-                        }
-
-                        if (U_FAILURE(err))
-                        {
-                            result = FALSE;
-                        }
-
-                        ucol_closeElements(pCollElem);
-                    }
+                    result = CanIgnoreAllCollationElements(pColl, lpSource, idx);
                 }
             }
 
@@ -617,10 +636,13 @@ extern "C" int32_t GlobalizationNative_EndsWith(
                 {
                     result = TRUE;
                 }
+                else
+                {
+                    int32_t matchEnd = idx + usearch_getMatchedLength(pSearch);
+                    int32_t remainingStringLength = cwSourceLength - matchEnd;
 
-                // TODO (dotnet/corefx#3467): We should do something similar to what
-                // StartsWith does where we can ignore
-                // some collation elements at the end of the string if they are zero.
+                    result = CanIgnoreAllCollationElements(pColl, lpSource + matchEnd, remainingStringLength);
+                }
             }
 
             usearch_close(pSearch);

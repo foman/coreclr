@@ -23,7 +23,7 @@ namespace System {
     // the contract of the method.  Ideally it should give a meaningful error
     // message describing what was wrong and which parameter is incorrect.
     // 
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public class ArgumentException : SystemException, ISerializable {
         private String m_paramName;
@@ -82,10 +82,9 @@ namespace System {
             get { return m_paramName; }
         }
     
-        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info==null) {
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             }
             Contract.EndContractBlock();
             base.GetObjectData(info, context);

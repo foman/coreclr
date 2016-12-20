@@ -26,7 +26,6 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Constructor
-        [System.Security.SecurityCritical]  // auto-generated
         internal SymbolMethod(ModuleBuilder mod, MethodToken token, Type arrayClass, String methodName, 
             CallingConventions callingConvention, Type returnType, Type[] parameterTypes)
         {
@@ -44,7 +43,7 @@ namespace System.Reflection.Emit
             if (parameterTypes != null)
             {
                 m_parameterTypes = new Type[parameterTypes.Length];
-                Array.Copy(parameterTypes, m_parameterTypes, parameterTypes.Length);
+                Array.Copy(parameterTypes, 0, m_parameterTypes, 0, parameterTypes.Length);
             }
             else
             {

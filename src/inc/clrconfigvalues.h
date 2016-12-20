@@ -33,7 +33,7 @@
 // CONFIG_DWORD_INFO(symbol, name, defaultValue, description) 
 // --------------------------------------------------------------------------
 // Use this macro to define a basic DWORD value. CLRConfig will look in environment variables (adding
-// COMPLUS_ to the name), the registry (HKLM and HKCU), and all the config files for this value. To customize
+// COMPlus_ to the name), the registry (HKLM and HKCU), and all the config files for this value. To customize
 // where CLRConfig looks, use the extended version of the macro below. IMPORTANT: please follow the
 // code:#NamingConventions for the symbol and the name!
 // 
@@ -114,8 +114,8 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_DisableMSIPeek, W("DisableMSIPeek"), 0, "Disab
 CONFIG_DWORD_INFO(INTERNAL_MsiPeekForbid, W("MsiPeekForbid"), 0, "Assert on MSI calls")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_ADULazyMemoryRelease, W("ADULazyMemoryRelease"), 1, "On by default. Turned off in cases when people try to catch memory leaks, in which case AD unload should be immediately followed by GC)")
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_ADURetryCount, W("ADURetryCount"), "Controls timeout of AD unload. Used for workarounds when machine is too slow, there are network issues etc.")
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_LEGACY_APPDOMAIN_MANAGER_ASM, W("APPDOMAIN_MANAGER_ASM"), "Legacy method to specify the assembly containing the AppDomainManager to use for the default domain", CLRConfig::DontPrependCOMPLUS_ | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_LEGACY_APPDOMAIN_MANAGER_TYPE, W("APPDOMAIN_MANAGER_TYPE"), "LegacyMethod to specify the type containing the AppDomainManager to use for the default domain", CLRConfig::DontPrependCOMPLUS_  | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_LEGACY_APPDOMAIN_MANAGER_ASM, W("APPDOMAIN_MANAGER_ASM"), "Legacy method to specify the assembly containing the AppDomainManager to use for the default domain", CLRConfig::DontPrependCOMPlus_ | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_LEGACY_APPDOMAIN_MANAGER_TYPE, W("APPDOMAIN_MANAGER_TYPE"), "LegacyMethod to specify the type containing the AppDomainManager to use for the default domain", CLRConfig::DontPrependCOMPlus_  | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_AppDomainManagerAsm, W("appDomainManagerAssembly"), "Config file switch to specify the assembly for the default AppDomainManager.", CLRConfig::IgnoreEnv | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_AppDomainManagerType, W("appDomainManagerType"), "Config file switch to specify the type for the default AppDomainManager.", CLRConfig::IgnoreEnv | CLRConfig::IgnoreHKLM | CLRConfig::IgnoreHKCU)
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_AppDomainAgilityChecked, W("AppDomainAgilityChecked"), "Used to detect AD boundary violations (AD leaks)")
@@ -249,7 +249,6 @@ CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_DbgTransportLog, W("DbgTransportLog"), 
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_DbgTransportLogClass, W("DbgTransportLogClass"), "mask to control what is logged in DbgTransportLog")
 RETAIL_CONFIG_STRING_INFO_EX(UNSUPPORTED_DbgTransportProxyAddress, W("DbgTransportProxyAddress"), "allows specifying the transport proxy address", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_DbgTrapOnSkip, W("DbgTrapOnSkip"), 0, "allows breaking when we skip a breakpoint", CLRConfig::REGUTIL_default)
-RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_DbgWaitForDebuggerAttach, W("DbgWaitForDebuggerAttach"), 0, "Makes CoreCLR wait for a managed debugger to attach on process start (1) or regular process start (0)")
 CONFIG_DWORD_INFO_EX(INTERNAL_DbgWaitTimeout, W("DbgWaitTimeout"), 1, "specifies the timeout value for waits", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_EX(UNSUPPORTED_DbgWFDETimeout, W("DbgWFDETimeout"), 25, "specifies the timeout value for wait when waiting for a debug event", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_RaiseExceptionOnAssert, W("RaiseExceptionOnAssert"), 0, "Raise a first chance (if set to 1) or second chance (if set to 2) exception on asserts.", CLRConfig::REGUTIL_default)
@@ -309,6 +308,7 @@ CONFIG_DWORD_INFO(INTERNAL_FastGCCheckStack, W("FastGCCheckStack"), 0, "")
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_FastGCStress, W("FastGCStress"), "reduce the number of GCs done by enabling GCStress")
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_GCBreakOnOOM, W("GCBreakOnOOM"), "Does a DebugBreak at the soonest time we detect an OOM")
 RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_gcConcurrent, W("gcConcurrent"), (DWORD)-1, "Enables/Disables concurrent GC")
+
 #ifdef FEATURE_CONSERVATIVE_GC
 RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_gcConservative, W("gcConservative"), 0, "Enables/Disables conservative GC")
 #endif
@@ -335,7 +335,7 @@ RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_GCCompactRatio, W("GCCompactRatio"), 0, "Sp
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_GCPollType, W("GCPollType"), "")
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_NewGCCalc, W("NewGCCalc"), "", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_GCprnLvl, W("GCprnLvl"), "Specifies the maximum level of GC logging")
-RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_GCRetainVM, W("GCRetainVM"), "When set we put the segments that should be deleted on a standby list (instead of releasing them back to the OS) which will be considered to satisfy new segment requests (note that the same thing can be specified via API which is the supported way)")
+RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_GCRetainVM, W("GCRetainVM"), 0, "When set we put the segments that should be deleted on a standby list (instead of releasing them back to the OS) which will be considered to satisfy new segment requests (note that the same thing can be specified via API which is the supported way)")
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_GCSegmentSize, W("GCSegmentSize"), "Specifies the managed heap segment size")
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_GCLOHCompact, W("GCLOHCompact"), "Specifies the LOH compaction mode")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_gcAllowVeryLargeObjects, W("gcAllowVeryLargeObjects"), 0, "allow allocation of 2GB+ objects on GC heap")
@@ -353,6 +353,8 @@ RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_HeapVerify, W("HeapVerify"), 
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_SetupGcCoverage, W("SetupGcCoverage"), "This doesn't appear to be a config flag", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_GCNumaAware, W("GCNumaAware"), 1, "Specifies if to enable GC NUMA aware")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_GCCpuGroup, W("GCCpuGroup"), 0, "Specifies if to enable GC to support CPU groups")
+RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_GCHeapCount, W("GCHeapCount"), 0, "")
+RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_GCNoAffinitize, W("GCNoAffinitize"), 0, "")
 
 //
 // IBC
@@ -411,7 +413,7 @@ CONFIG_DWORD_INFO_EX(INTERNAL_JitDumpToDebugger, W("JitDumpToDebugger"), 0, "Out
 CONFIG_DWORD_INFO_EX(INTERNAL_JitEmitPrintRefRegs, W("JitEmitPrintRefRegs"), 0, "", CLRConfig::REGUTIL_default)
 CONFIG_STRING_INFO_EX(INTERNAL_JitExclude, W("JitExclude"), "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitForceFallback, W("JitForceFallback"), 0, "Set to non-zero to test NOWAY assert by forcing a retry", CLRConfig::REGUTIL_default)
-CONFIG_DWORD_INFO_EX(INTERNAL_JitNoForceFallback, W("JitNoForceFallback"), 0, "Set to non-zero to prevent NOWAY assert testing. Overrides COMPLUS_JitForceFallback and JIT stress flags.", CLRConfig::REGUTIL_default)
+CONFIG_DWORD_INFO_EX(INTERNAL_JitNoForceFallback, W("JitNoForceFallback"), 0, "Set to non-zero to prevent NOWAY assert testing. Overrides COMPlus_JitForceFallback and JIT stress flags.", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitExpensiveDebugCheckLevel, W("JitExpensiveDebugCheckLevel"), 0, "Level indicates how much checking beyond the default to do in debug builds (currently 1-2)", CLRConfig::REGUTIL_default)
 CONFIG_STRING_INFO_EX(INTERNAL_JitForceProcedureSplitting, W("JitForceProcedureSplitting"), "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitForceVer, W("JitForceVer"), 0, "", CLRConfig::REGUTIL_default)
@@ -475,6 +477,12 @@ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_UseLegacyJit, W("useLegacyJit"), 0, "Set to 1 
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_DisableNativeImageLoadList, W("DisableNativeImageLoadList"), "Refuse to load native images corresponding to one of the assemblies on this semicolon-delimited list of assembly names.", CLRConfig::REGUTIL_default)
 #endif
 
+#if defined(FEATURE_CORECLR) && defined(_TARGET_X86_)
+RETAIL_CONFIG_DWORD_INFO(EXTERNAL_UseWindowsX86CoreLegacyJit, W("UseWindowsX86CoreLegacyJit"), 0, "Set to 1 to do all JITing with compatjit.dll. Only applicable to Windows x86 .NET Core.")
+#endif
+
+RETAIL_CONFIG_DWORD_INFO(EXTERNAL_RequireLegacyJit, W("RequireLegacyJit"), 0, "Set to 1 to require the use of legacy JIT (via COMPlus_useLegacyJit=1 or COMPlus_UseWindowsX86CoreLegacyJit=1).")
+
 CONFIG_STRING_INFO_EX(INTERNAL_JitValNumCSE,  W("JitValNumCSE"),  "Enables ValNum CSE for the specified methods", CLRConfig::REGUTIL_default) 
 CONFIG_STRING_INFO_EX(INTERNAL_JitLexicalCSE, W("JitLexicalCSE"), "Enables Lexical CSE for the specified methods", CLRConfig::REGUTIL_default) 
 CONFIG_DWORD_INFO_EX(INTERNAL_JitNoCSE, W("JitNoCSE"), 0, "", CLRConfig::REGUTIL_default)
@@ -491,7 +499,7 @@ CONFIG_DWORD_INFO_EX(INTERNAL_JitNoStructPromotion, W("JitNoStructPromotion"), 0
 CONFIG_DWORD_INFO_EX(INTERNAL_JitNoUnroll, W("JitNoUnroll"), 0, "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitNoMemoryBarriers, W("JitNoMemoryBarriers"), 0, "If 1, don't generate memory barriers", CLRConfig::REGUTIL_default)
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
-RETAIL_CONFIG_DWORD_INFO(PRIVATE_JitNoRangeChks, W("JitNoRngChks"), 0, "If 1, don't generate range checks")
+RETAIL_CONFIG_DWORD_INFO_EX(PRIVATE_JitNoRangeChks, W("JitNoRngChks"), 0, "If 1, don't generate range checks", CLRConfig::REGUTIL_default)
 #endif
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_JitOptimizeType, W("JitOptimizeType"), "")
 CONFIG_DWORD_INFO_EX(INTERNAL_JitOrder, W("JitOrder"), 0, "", CLRConfig::REGUTIL_default)
@@ -543,13 +551,13 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_AltJitAssertOnNYI, W("AltJitAssertOnNYI"), 0, 
 #else
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_AltJitAssertOnNYI, W("AltJitAssertOnNYI"), 1, "Controls the AltJit behavior of NYI stuff")
 #endif
-CONFIG_DWORD_INFO_EX(INTERNAL_AltJitSkipOnAssert, W("AltJitSkipOnAssert"), 0, "If AltJit hits an assert, fall back to the fallback JIT. Useful in conjunction with COMPLUS_ContinueOnAssert=1", CLRConfig::REGUTIL_default)
+CONFIG_DWORD_INFO_EX(INTERNAL_AltJitSkipOnAssert, W("AltJitSkipOnAssert"), 0, "If AltJit hits an assert, fall back to the fallback JIT. Useful in conjunction with COMPlus_ContinueOnAssert=1", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitLargeBranches, W("JitLargeBranches"), 0, "Force using the largest conditional branch format", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitSplitFunctionSize, W("JitSplitFunctionSize"), 0, "On ARM, use this as the maximum function/funclet size for creating function fragments (and creating multiple RUNTIME_FUNCTION entries)", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_JitRegisterFP, W("JitRegisterFP"), 3, "Control FP enregistration", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_JitELTHookEnabled, W("JitELTHookEnabled"), 0, "On ARM, setting this will emit Enter/Leave/TailCall callbacks")
 CONFIG_DWORD_INFO_EX(INTERNAL_JitComponentUnitTests, W("JitComponentUnitTests"), 0, "Run JIT component unit tests", CLRConfig::REGUTIL_default)
-CONFIG_DWORD_INFO_EX(INTERNAL_JitMemStats, W("JitMemStats"), 0, "Display JIT memory usage statistics", CLRConfig::REGUTIL_default)
+RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JitMemStats, W("JitMemStats"), 0, "Display JIT memory usage statistics", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitLoopHoistStats, W("JitLoopHoistStats"), 0, "Display JIT loop hoisting statistics", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitDebugLogLoopCloning, W("JitDebugLogLoopCloning"), 0, "In debug builds log places where loop cloning optimizations are performed on the fast path.", CLRConfig::REGUTIL_default);
 CONFIG_DWORD_INFO_EX(INTERNAL_JitVNMapSelLimit, W("JitVNMapSelLimit"), 0, "If non-zero, assert if # of VNF_MapSelect applications considered reaches this", CLRConfig::REGUTIL_default)
@@ -598,11 +606,11 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_InterpreterDoLoopMethods, W("InterpreterDoLoop
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_InterpreterUseCaching, W("InterpreterUseCaching"), 1, "If non-zero, use the caching mechanism.", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_InterpreterLooseRules, W("InterpreterLooseRules"), 1, "If non-zero, allow ECMA spec violations required by managed C++.", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_InterpreterPrintPostMortem, W("InterpreterPrintPostMortem"), 0, "Prints summary information about the execution to the console")
-CONFIG_STRING_INFO_EX(INTERNAL_InterpreterLogFile, W("InterpreterLogFile"), "If non-null, append interpreter logging to this file, else use stdout", CLRConfig::REGUTIL_default)
-CONFIG_DWORD_INFO(INTERNAL_DumpInterpreterStubs, W("DumpInterpreterStubs"), 0, "Prints all interpreter stubs that are created to the console")
-CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterEntries, W("TraceInterpreterEntries"), 0, "Logs entries to interpreted methods to the console")
-CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterIL, W("TraceInterpreterIL"), 0, "Logs individual instructions of interpreted methods to the console")
-CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterOstack, W("TraceInterpreterOstack"), 0, "Logs operand stack after each IL instruction of interpreted methods to the console")
+RETAIL_CONFIG_STRING_INFO_EX(INTERNAL_InterpreterLogFile, W("InterpreterLogFile"), "If non-null, append interpreter logging to this file, else use stdout", CLRConfig::REGUTIL_default)
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_DumpInterpreterStubs, W("DumpInterpreterStubs"), 0, "Prints all interpreter stubs that are created to the console")
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterEntries, W("TraceInterpreterEntries"), 0, "Logs entries to interpreted methods to the console")
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterIL, W("TraceInterpreterIL"), 0, "Logs individual instructions of interpreted methods to the console")
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterOstack, W("TraceInterpreterOstack"), 0, "Logs operand stack after each IL instruction of interpreted methods to the console")
 CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterVerbose, W("TraceInterpreterVerbose"), 0, "Logs interpreter progress with detailed messages to the console")
 CONFIG_DWORD_INFO(INTERNAL_TraceInterpreterJITTransition, W("TraceInterpreterJITTransition"), 0, "Logs when the interpreter determines a method should be JITted")
 #endif
@@ -660,7 +668,7 @@ CONFIG_DWORD_INFO_EX(INTERNAL_MD_PreSaveBreak, W("MD_PreSaveBreak"), 0, "ASSERT 
 CONFIG_DWORD_INFO_EX(INTERNAL_MD_RegMetaBreak, W("MD_RegMetaBreak"), 0, "ASSERT when creating RegMeta class", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_MD_RegMetaDump, W("MD_RegMetaDump"), 0, "? Dump MD in 4 functions?", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_MD_TlbImp_BreakOnErr, W("MD_TlbImp_BreakOnErr"), 0, "ASSERT when importing TLB into MD", CLRConfig::REGUTIL_default)
-CONFIG_STRING_INFO_EX(INTERNAL_MD_TlbImp_BreakOnTypeImport, W("MD_TlbImp_BreakOnTypeImport"), "ASSERT when importing a type from TLB", (CLRConfig::LookupOptions) (CLRConfig::REGUTIL_default | CLRConfig::DontPrependCOMPLUS_))
+CONFIG_STRING_INFO_EX(INTERNAL_MD_TlbImp_BreakOnTypeImport, W("MD_TlbImp_BreakOnTypeImport"), "ASSERT when importing a type from TLB", (CLRConfig::LookupOptions) (CLRConfig::REGUTIL_default | CLRConfig::DontPrependCOMPlus_))
 // MetaData - Desktop-only
 #ifndef FEATURE_CORECLR
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_MD_UseMinimalDeltas, W("MD_UseMinimalDeltas"), 1, "? Some MD modifications when applying EnC?", CLRConfig::REGUTIL_default)
@@ -703,26 +711,7 @@ CONFIG_STRING_INFO(INTERNAL_NgenBind_ZapForbidList,        W("NgenBind_ZapForbid
 
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_NgenBind_OptimizeNonGac, W("NgenBind_OptimizeNonGac"), 0, "Skip loading IL image outside of GAC when NI can be loaded")
 
-// 
-// MDIL
-// 
-RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JIT_MDIL_MIN_TOKEN, W("JIT_MDIL_MIN_TOKEN"), 0, "TBD", CLRConfig::REGUTIL_default)
-RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JIT_MDIL_MAX_TOKEN, W("JIT_MDIL_MAX_TOKEN"), 0xffffffff, "TBD", CLRConfig::REGUTIL_default)
-RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JitDisassembleMDIL, W("JitDisassembleMDIL"), 0, "TBD", CLRConfig::REGUTIL_default)
-RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JitListMDILtoNative, W("JitListMDILtoNative"), 0, "TBD", CLRConfig::REGUTIL_default)
-RETAIL_CONFIG_STRING_INFO_EX(INTERNAL_MDIL_BREAK_ON, W("MDIL_BREAK_ON"), "TBD", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_SymDiffDump, W("SymDiffDump"), 0, "Used to create the map file while binding the assembly. Used by SemanticDiffer", CLRConfig::REGUTIL_default)
-
-// MDIL stress
-CONFIG_DWORD_INFO(INTERNAL_TritonStressSeed, W("TritonStressSeed"), 0, "Seed used for random number used to drive mdil stress modes")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressLogFlags, W("TritonStressLogFlags"), 3, "Triton stress logging")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressPartialMDIL, W("TritonStressPartialMDIL"), 0, "This stress mode will cause some number of methods to abort MDIL compilation. This should trigger them to fall back to JIT at runtime.")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressPartialCTL, W("TritonStressPartialCTL"), 0, "This stress mode will cause some number of types from this module to fail to generate CTL.")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressTypeLoad, W("TritonStressTypeLoad"), 0, "Triton Stress of type loading in mdilbind, parameter is LoadStressFlag")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressMethodLoad, W("TritonStressMethodLoad"), 0, "Triton Stress of method loading in mdilbind, parameter is LoadStressFlag")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressFieldLoad, W("TritonStressFieldLoad"), 0, "Triton Stress of field loading in mdilbind, parameter is LoadStressFlag")
-CONFIG_DWORD_INFO(INTERNAL_TritonStressAssemblyLoad, W("TritonStressAssemblyLoad"), 0, "Triton Stress of assembly loading in mdilbind, parameter is LoadStressFlag")
-RETAIL_CONFIG_DWORD_INFO(INTERNAL_MdilNIGenDefaultFailureMode, W("MdilNIGenDefaultFailureMode"), 0, "Override default failure mode of mdil ni generation")
 
 // 
 // NGEN
@@ -849,16 +838,16 @@ RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_ProcessNameFormat, W("ProcessNameFormat"), 
 // 
 // Profiling API / ETW
 // 
-RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_COR_ENABLE_PROFILING, W("COR_ENABLE_PROFILING"), 0, "Flag to indicate whether profiling should be enabled for the currently running process.", CLRConfig::DontPrependCOMPLUS_ | CLRConfig::IgnoreConfigFiles)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER, W("COR_PROFILER"), "Specifies GUID of profiler to load into currently running process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH, W("COR_PROFILER_PATH"), "Specifies the path to the DLL of profiler to load into currently running process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH_32, W("COR_PROFILER_PATH_32"), "Specifies the path to the DLL of profiler to load into currently running 32 bits process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH_64, W("COR_PROFILER_PATH_64"), "Specifies the path to the DLL of profiler to load into currently running 64 bits process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_CORECLR_ENABLE_PROFILING, W("CORECLR_ENABLE_PROFILING"), 0, "CoreCLR only: Flag to indicate whether profiling should be enabled for the currently running process.", CLRConfig::DontPrependCOMPLUS_ | CLRConfig::IgnoreConfigFiles)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER, W("CORECLR_PROFILER"), "CoreCLR only: Specifies GUID of profiler to load into currently running process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH, W("CORECLR_PROFILER_PATH"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH_32, W("CORECLR_PROFILER_PATH_32"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running 32 process", CLRConfig::DontPrependCOMPLUS_)
-RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH_64, W("CORECLR_PROFILER_PATH_64"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running 64 process", CLRConfig::DontPrependCOMPLUS_)
+RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_COR_ENABLE_PROFILING, W("COR_ENABLE_PROFILING"), 0, "Flag to indicate whether profiling should be enabled for the currently running process.", CLRConfig::DontPrependCOMPlus_ | CLRConfig::IgnoreConfigFiles)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER, W("COR_PROFILER"), "Specifies GUID of profiler to load into currently running process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH, W("COR_PROFILER_PATH"), "Specifies the path to the DLL of profiler to load into currently running process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH_32, W("COR_PROFILER_PATH_32"), "Specifies the path to the DLL of profiler to load into currently running 32 bits process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_COR_PROFILER_PATH_64, W("COR_PROFILER_PATH_64"), "Specifies the path to the DLL of profiler to load into currently running 64 bits process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_CORECLR_ENABLE_PROFILING, W("CORECLR_ENABLE_PROFILING"), 0, "CoreCLR only: Flag to indicate whether profiling should be enabled for the currently running process.", CLRConfig::DontPrependCOMPlus_ | CLRConfig::IgnoreConfigFiles)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER, W("CORECLR_PROFILER"), "CoreCLR only: Specifies GUID of profiler to load into currently running process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH, W("CORECLR_PROFILER_PATH"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH_32, W("CORECLR_PROFILER_PATH_32"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running 32 process", CLRConfig::DontPrependCOMPlus_)
+RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_CORECLR_PROFILER_PATH_64, W("CORECLR_PROFILER_PATH_64"), "CoreCLR only: Specifies the path to the DLL of profiler to load into currently running 64 process", CLRConfig::DontPrependCOMPlus_)
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_ProfAPI_ProfilerCompatibilitySetting, W("ProfAPI_ProfilerCompatibilitySetting"), "Specifies the profiler loading policy (the default is not to load a V2 profiler in V4)", CLRConfig::REGUTIL_default | CLRConfig::TrimWhiteSpaceFromStringValue)
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_AttachThreadAlwaysOn, W("AttachThreadAlwaysOn"), "Forces profapi attach thread to be created on startup, instead of on-demand.")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_MsBetweenAttachCheck, W("MsBetweenAttachCheck"), 500, "")
@@ -972,6 +961,7 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_ThreadPool_ForceMaxWorkerThreads, W("ThreadPoo
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_ThreadPool_DisableStarvationDetection, W("ThreadPool_DisableStarvationDetection"), 0, "Disables the ThreadPool feature that forces new threads to be added when workitems run for too long")
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_ThreadPool_DebugBreakOnWorkerStarvation, W("ThreadPool_DebugBreakOnWorkerStarvation"), 0, "Breaks into the debugger if the ThreadPool detects work queue starvation")
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_ThreadPool_EnableWorkerTracking, W("ThreadPool_EnableWorkerTracking"), 0, "Enables extra expensive tracking of how many workers threads are working simultaneously")
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_ThreadPool_UnfairSemaphoreSpinLimit, W("ThreadPool_UnfairSemaphoreSpinLimit"), 50, "Per processor limit used when calculating spin duration in UnfairSemaphore::Wait")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_Thread_UseAllCpuGroups, W("Thread_UseAllCpuGroups"), 0, "Specifies if to automatically distribute thread across CPU Groups")
 
 CONFIG_DWORD_INFO(INTERNAL_ThreadpoolTickCountAdjustment, W("ThreadpoolTickCountAdjustment"), 0, "")
@@ -1042,9 +1032,13 @@ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_ReadyToRun, W("ReadyToRun"), 1, "Enable/disabl
 #else
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_ReadyToRun, W("ReadyToRun"), 0, "Enable/disable use of ReadyToRun native code") // Off by default for desktop
 #endif
+RETAIL_CONFIG_STRING_INFO(EXTERNAL_ReadyToRunExcludeList, W("ReadyToRunExcludeList"), "List of assemblies that cannot use Ready to Run images")
+RETAIL_CONFIG_STRING_INFO(EXTERNAL_ReadyToRunLogFile, W("ReadyToRunLogFile"), "Name of file to log success/failure of using Ready to Run images")
 
 #if defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT)
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_EnableEventLog, W("EnableEventLog"), 0, "Enable/disable use of EnableEventLogging mechanism ") // Off by default 
+RETAIL_CONFIG_STRING_INFO(INTERNAL_EventSourceFilter, W("EventSourceFilter"), "")
+RETAIL_CONFIG_STRING_INFO(INTERNAL_EventNameFilter, W("EventNameFilter"), "")
 #endif //defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT)
 
 //
@@ -1134,12 +1128,12 @@ CONFIG_DWORD_INFO_EX(INTERNAL_MscorsnLogging, W("MscorsnLogging"), 0, "Enables s
 RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_NativeImageRequire, W("NativeImageRequire"), 0, "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_NestedEhOom, W("NestedEhOom"), 0, "", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_NO_SO_NOT_MAINLINE, W("NO_SO_NOT_MAINLINE"), 0, "", CLRConfig::REGUTIL_default)
-#if defined(CROSSGEN_COMPILE)
+#if defined(CROSSGEN_COMPILE) || defined(FEATURE_CORECLR)
 #define INTERNAL_NoGuiOnAssert_Default 1
 #else
 #define INTERNAL_NoGuiOnAssert_Default 0
 #endif
-CONFIG_DWORD_INFO_EX(INTERNAL_NoGuiOnAssert, W("NoGuiOnAssert"), INTERNAL_NoGuiOnAssert_Default, "", CLRConfig::REGUTIL_default)
+RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_NoGuiOnAssert, W("NoGuiOnAssert"), INTERNAL_NoGuiOnAssert_Default, "", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_EX(EXTERNAL_NoProcedureSplitting, W("NoProcedureSplitting"), 0, "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_NoStringInterning, W("NoStringInterning"), 1, "Disallows string interning. I see no value in it anymore.", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_NotifyBadAppCfg, W("NotifyBadAppCfg"), "Whether to show a message box for bad application config file.")

@@ -83,9 +83,9 @@
 #include "peimagelayout.inl"
 #include "ildbsymlib.h"
 
-#if defined(FEATURE_HOSTED_BINDER) && defined(FEATURE_APPX_BINDER)
+#if defined(FEATURE_APPX_BINDER)
 #include "clrprivbinderappx.h"
-#endif //defined(FEATURE_HOSTED_BINDER) && defined(FEATURE_APPX_BINDER)
+#endif // defined(FEATURE_APPX_BINDER)
 
 #if defined(PROFILING_SUPPORTED)
 #include "profilermetadataemitvalidator.h"
@@ -103,15 +103,6 @@
 #define COR_VTABLE_PTRSIZED     COR_VTABLE_32BIT
 #define COR_VTABLE_NOT_PTRSIZED COR_VTABLE_64BIT
 #endif // !_WIN64
-
-// Hash table parameter of available classes (name -> module/class) hash
-#define AVAILABLE_CLASSES_HASH_BUCKETS 1024
-#define AVAILABLE_CLASSES_HASH_BUCKETS_COLLECTIBLE 128
-#define PARAMTYPES_HASH_BUCKETS 23
-#define PARAMMETHODS_HASH_BUCKETS 11
-#define METHOD_STUBS_HASH_BUCKETS 11
-
-#define GUID_TO_TYPE_HASH_BUCKETS 16
 
 #define CEE_FILE_GEN_GROWTH_COLLECTIBLE 2048
 
@@ -851,10 +842,15 @@ void Module::Initialize(AllocMemTracker *pamTracker, LPCWSTR szName)
 
     m_dwTransientFlags &= ~((DWORD)CLASSES_FREED);  // Set flag indicating LookupMaps are now in a consistent and destructable state
 
+#ifdef FEATURE_READYTORUN
+    if (!HasNativeImage() && !IsResource())
+        m_pReadyToRunInfo = ReadyToRunInfo::Initialize(this, pamTracker);
+#endif
+
     // Initialize the instance fields that we need for all non-Resource Modules
     if (!IsResource())
     {
-        if (m_pAvailableClasses == NULL)
+        if (m_pAvailableClasses == NULL && !IsReadyToRun())
         {
             m_pAvailableClasses = EEClassHashTable::Create(this,
                 GetAssembly()->IsCollectible() ? AVAILABLE_CLASSES_HASH_BUCKETS_COLLECTIBLE : AVAILABLE_CLASSES_HASH_BUCKETS,
@@ -921,11 +917,6 @@ void Module::Initialize(AllocMemTracker *pamTracker, LPCWSTR szName)
     // Set up native image
     if (HasNativeImage())
         InitializeNativeImage(pamTracker);
-#ifdef FEATURE_READYTORUN
-    else
-    if (!IsResource())
-        m_pReadyToRunInfo = ReadyToRunInfo::Initialize(this, pamTracker);
-#endif
 #endif // FEATURE_PREJIT
 
 
@@ -1665,6 +1656,7 @@ void Module::Destruct()
     m_InstMethodHashTableCrst.Destroy();
     m_ISymUnmanagedReaderCrst.Destroy();
 
+#ifdef FEATURE_CER
     if (m_pCerPrepInfo)
     {
         _ASSERTE(m_pCerCrst != NULL);
@@ -1681,6 +1673,7 @@ void Module::Destruct()
     }
     if (m_pCerCrst)
         delete m_pCerCrst;
+#endif // FEATURE_CER
 
     if (m_debuggerSpecificData.m_pDynamicILCrst)
     {
@@ -1711,8 +1704,10 @@ void Module::Destruct()
     }
 
 #ifdef FEATURE_PREJIT 
+#ifdef FEATURE_CER
     if (m_pCerNgenRootTable && (m_dwTransientFlags & M_CER_ROOT_TABLE_ON_HEAP))
         delete m_pCerNgenRootTable;
+#endif
 
     if (HasNativeImage())
     {
@@ -1864,8 +1859,6 @@ PTR_Module Module::ComputePreferredZapModule(Module * pDefinitionModule,
 //
 // Is pModule likely a dependency of pOtherModule? Heuristic used by preffered zap module algorithm.
 // It can return both false positives and negatives.
-//
-// Keep in sync with tools\mdilbind\mdilmodule.cpp
 //
 static bool IsLikelyDependencyOf(Module * pModule, Module * pOtherModule)
 {
@@ -2904,12 +2897,6 @@ BOOL Module::IsNoStringInterning()
         // Default is string interning
         BOOL fNoStringInterning = FALSE;
 
-#ifdef FEATURE_LEGACYNETCF
-        // NetCF ignored this attribute
-        if (GetAppDomain()->GetAppDomainCompatMode() != BaseDomain::APPDOMAINCOMPAT_APP_EARLIER_THAN_WP8)
-        {
-#endif
-
         HRESULT hr;
         
         // This flag applies to assembly, but it is stored on module so it can be cached in ngen image
@@ -2942,10 +2929,6 @@ BOOL Module::IsNoStringInterning()
                 fNoStringInterning = TRUE;
             }
         }
-
-#ifdef FEATURE_LEGACYNETCF
-        }
-#endif
 
 #ifdef _DEBUG
         static ConfigDWORD g_NoStringInterning;
@@ -3043,7 +3026,6 @@ BOOL Module::GetNeutralResourcesLanguage(LPCUTF8 * cultureName, ULONG * cultureN
 }
 
 
-#ifndef FEATURE_CORECLR
 BOOL Module::HasDefaultDllImportSearchPathsAttribute()
 {
     CONTRACTL
@@ -3073,7 +3055,6 @@ BOOL Module::HasDefaultDllImportSearchPathsAttribute()
 
     return (m_dwPersistedFlags & DEFAULT_DLL_IMPORT_SEARCH_PATHS_STATUS) != 0 ;
 }
-#endif // !FEATURE_CORECLR
 
 // Returns a BOOL to indicate if we have computed whether compiler has instructed us to
 // wrap the non-CLS compliant exceptions or not.
@@ -3177,6 +3158,7 @@ BOOL Module::IsPreV4Assembly()
     return !!(m_dwPersistedFlags & IS_PRE_V4_ASSEMBLY);
 }
 
+#ifdef FEATURE_CER
 DWORD Module::GetReliabilityContract()
 {
     CONTRACTL
@@ -3203,6 +3185,7 @@ DWORD Module::GetReliabilityContract()
 
     return m_dwReliabilityContract;
 }
+#endif // FEATURE_CER
 
 ArrayDPTR(FixupPointer<PTR_MethodTable>) ModuleCtorInfo::GetGCStaticMTs(DWORD index)
 {
@@ -3450,8 +3433,8 @@ void Module::EnumRegularStaticGCRefs(AppDomain* pAppDomain, promote_func* fn, Sc
     }
     CONTRACT_END;
 
-    _ASSERTE(GCHeap::IsGCInProgress() && 
-         GCHeap::IsServerHeap() && 
+    _ASSERTE(GCHeapUtilities::IsGCInProgress() && 
+         GCHeapUtilities::IsServerHeap() && 
          IsGCSpecialThread());
 
 
@@ -4303,7 +4286,11 @@ ISymUnmanagedReader *Module::GetISymUnmanagedReader(void)
             // On desktop, the framework installer is supposed to install diasymreader.dll as well
             // and so this shouldn't happen.
             hr = FakeCoCreateInstanceEx(CLSID_CorSymBinder_SxS,
+#ifdef FEATURE_CORECLR
+                                        NATIVE_SYMBOL_READER_DLL,
+#else
                                         GetInternalSystemDirectory(),
+#endif
                                         IID_ISymUnmanagedBinder,
                                         (void**)&pBinder,
                                         NULL);
@@ -5657,13 +5644,10 @@ Assembly * Module::GetAssemblyIfLoadedFromNativeAssemblyRefWithRefDefMismatch(md
             // This extended check is designed only to find assemblies loaded via an AssemblySpecBindingCache based binder. Verify that's what we found.
             if(pAssemblyCandidate != NULL)
             {
-#ifdef FEATURE_HOSTED_BINDER
                 if (!pAssemblyCandidate->GetManifestFile()->HasHostAssembly())
-#endif // FEATURE_HOSTED_BINDER
                 {
                     pAssembly = pAssemblyCandidate;
                 }
-#ifdef FEATURE_HOSTED_BINDER
                 else
                 {
                     DWORD binderFlags = 0;
@@ -5682,7 +5666,6 @@ Assembly * Module::GetAssemblyIfLoadedFromNativeAssemblyRefWithRefDefMismatch(md
                         _ASSERTE("Non-AssemblySpecBindingCache based assembly found with extended search" && !(IsStackWalkerThread() || IsGCThread()) && IsGenericInstantiationLookupCompareThread());
                     }
                 }
-#endif // FEATURE_HOSTED_BINDER
             }
         }
     }
@@ -5783,7 +5766,6 @@ Module::GetAssemblyIfLoaded(
                 _ASSERTE(szWinRtClassName != NULL);
                 
                 CLRPrivBinderWinRT * pWinRtBinder = pAppDomainExamine->GetWinRtBinder();
-#ifdef FEATURE_HOSTED_BINDER
                 if (pWinRtBinder == nullptr)
                 {   // We are most likely in AppX mode (calling AppX::IsAppXProcess() for verification is painful in DACCESS)
 #ifndef DACCESS_COMPILE
@@ -5820,7 +5802,6 @@ Module::GetAssemblyIfLoaded(
 #endif // defined(FEATURE_APPX_BINDER)
                     }
                 }
-#endif //FEATURE_HOSTED_BINDER
                 
                 if (pWinRtBinder != nullptr)
                 {
@@ -6293,7 +6274,7 @@ Module *Module::GetModuleIfLoaded(mdFile kFile, BOOL onlyLoadedInAppDomain, BOOL
 #ifndef DACCESS_COMPILE
 #if defined(FEATURE_MULTIMODULE_ASSEMBLIES)
     // check if actually loaded, unless happens during GC (GC works only with loaded assemblies)
-    if (!GCHeap::IsGCInProgress() && onlyLoadedInAppDomain && pModule && !pModule->IsManifest())
+    if (!GCHeapUtilities::IsGCInProgress() && onlyLoadedInAppDomain && pModule && !pModule->IsManifest())
     {
         DomainModule *pDomainModule = pModule->FindDomainModule(GetAppDomain());
         if (pDomainModule == NULL || !pDomainModule->IsLoaded())
@@ -9199,26 +9180,11 @@ void Module::ExpandAll(DataImage *image)
     mdToken tk;
     DWORD assemblyFlags = GetAssembly()->GetFlags();
 
-    // construct a compact layout writer if necessary
-#ifdef MDIL
-    ICompactLayoutWriter *pCompactLayoutWriter = NULL;
-    if (!GetAppDomain()->IsNoMDILCompilationDomain())
-    {
-        pCompactLayoutWriter = ICompactLayoutWriter::MakeCompactLayoutWriter(this, image->m_pZapImage);
-    }
-#endif //MDIL
     //
     // Explicitly load the global class.
     //
 
     MethodTable *pGlobalMT = GetGlobalMethodTable();
-#ifdef MDIL
-    if (pCompactLayoutWriter != NULL && pGlobalMT != NULL)
-    {
-        EEClass *pGlocalClass = pGlobalMT->GetClass();
-        pGlocalClass->WriteCompactLayout(pCompactLayoutWriter, image->m_pZapImage);
-    }
-#endif //MDIL
 
     //
     // Load all classes.  This also fills out the
@@ -9264,15 +9230,6 @@ void Module::ExpandAll(DataImage *image)
             
             if (t.IsNull()) // Skip this type
                 continue; 
-
-#ifdef MDIL
-            if (pCompactLayoutWriter != NULL)
-            {
-                MethodTable *pMT = t.AsMethodTable();
-                EEClass *pClass = pMT->GetClass();
-                pClass->WriteCompactLayout(pCompactLayoutWriter, image->m_pZapImage);
-            }
-#endif // MDIL
 
             if (!t.HasInstantiation())
             {
@@ -9526,12 +9483,6 @@ void Module::ExpandAll(DataImage *image)
         m_pBinder->BindAll();
     }
 
-#ifdef MDIL
-    if (pCompactLayoutWriter)
-    {
-        pCompactLayoutWriter->Flush();
-    }
-#endif // MDIL
 } // Module::ExpandAll
 
 /* static */
@@ -9915,10 +9866,12 @@ void Module::PrepareTypesForSave(DataImage *image)
             PrepareRemotableMethodInfo(pMT);
 #endif // FEATURE_REMOTING
 
+#ifdef FEATURE_CER
             // If this module defines any CriticalFinalizerObject derived classes,
             // then we'll prepare these types for Constrained Execution Regions (CER) now.
             // (Normally they're prepared at object instantiation time, a little too late for ngen).
             PrepareCriticalType(pMT);
+#endif // FEATURE_CER
         }
     }
 
@@ -10002,12 +9955,12 @@ void Module::Save(DataImage *image)
     // Cache values of all persisted flags computed from custom attributes
     IsNoStringInterning();
     IsRuntimeWrapExceptions();
+#ifdef FEATURE_CER
     GetReliabilityContract();
+#endif
     IsPreV4Assembly();
 
-#ifndef FEATURE_CORECLR
     HasDefaultDllImportSearchPathsAttribute();
-#endif
 
     // Precompute property information to avoid runtime metadata lookup
     PopulatePropertyInfoMap();
@@ -10359,10 +10312,12 @@ void Module::Save(DataImage *image)
                           m_nPropertyNameSet * sizeof(BYTE),
                           DataImage::ITEM_PROPERTY_NAME_SET);
 
+#ifdef FEATURE_CER
     // Save Constrained Execution Region (CER) fixup information (used to eagerly fixup trees of methods to avoid any runtime
     // induced failures when invoking the tree).
     if (m_pCerNgenRootTable != NULL)
         m_pCerNgenRootTable->Save(image, profileData);
+#endif
 
     // Sort the list of RVA statics in an ascending order wrt the RVA
     // and save them.
@@ -10818,6 +10773,7 @@ void Module::PlaceMethod(DataImage *image, MethodDesc *pMD, DWORD profilingFlags
         image->PlaceStructureForAddress(pMD, CORCOMPILE_SECTION_WRITE);
     }
 
+#ifdef FEATURE_CER
     if (profilingFlags & (1 << ReadCerMethodList))
     {
         // protect against stale IBC data
@@ -10828,6 +10784,7 @@ void Module::PlaceMethod(DataImage *image, MethodDesc *pMD, DWORD profilingFlags
             image->PlaceStructureForAddress(m_pCerNgenRootTable->GetList(pMD), CORCOMPILE_SECTION_HOT);
         }
     }
+#endif // FEATURE_CER
 
     if (profilingFlags & (1 << WriteMethodPrecode))
     {
@@ -11371,6 +11328,7 @@ void Module::Fixup(DataImage *image)
     image->ZeroField(m_FileReferencesMap.pTable, 0,
                      m_FileReferencesMap.GetSize() * sizeof(void*));
 
+#ifdef FEATURE_CER
     //
     // Fixup Constrained Execution Regions restoration records.
     //
@@ -11387,6 +11345,7 @@ void Module::Fixup(DataImage *image)
     // Zero out fields we always compute at runtime lazily.
     image->ZeroField(this, offsetof(Module, m_pCerPrepInfo), sizeof(m_pCerPrepInfo));
     image->ZeroField(this, offsetof(Module, m_pCerCrst), sizeof(m_pCerCrst));
+#endif // FEATURE_CER
 
     image->ZeroField(this, offsetof(Module, m_debuggerSpecificData), sizeof(m_debuggerSpecificData));
 
@@ -13921,7 +13880,7 @@ static void ProfileDataAllocateTokenDefinitions(ProfileEmitter * pEmitter, Modul
     mdProfileData->size = sizeof(CORBBTPROF_BLOB_ENTRY);
 }
 
-// Responsible for writing out the profile data if the COMPLUS_BBInstr 
+// Responsible for writing out the profile data if the COMPlus_BBInstr 
 // environment variable is set.  This is called when the module is unloaded
 // (usually at shutdown).
 HRESULT Module::WriteMethodProfileDataLogFile(bool cleanup)
@@ -15650,7 +15609,7 @@ FieldDesc *Module::LookupFieldDef(mdFieldDef token)
 #endif // DACCESS_COMPILE
 
 
-#ifndef DACCESS_COMPILE 
+#if !defined(DACCESS_COMPILE) && defined(FEATURE_CER)
 
 // Access to CerPrepInfo, the structure used to track CERs prepared at runtime (as opposed to ngen time). GetCerPrepInfo will
 // return the structure associated with the given method desc if it exists or NULL otherwise. CreateCerPrepInfo will get the
@@ -15802,7 +15761,7 @@ void Module::RestoreCer(MethodDesc *pMD)
 
 #endif // FEATURE_PREJIT
 
-#endif // !DACCESS_COMPILE
+#endif // !DACCESS_COMPILE && FEATURE_CER
 
 
 
@@ -15968,9 +15927,9 @@ void Module::ExpandAll()
                                                                                  pMD->GetMDImport(),
                                                                                  &ignored));
 #ifdef FEATURE_INTERPRETER
-                pMD->MakeJitWorker(pHeader, CORJIT_FLG_MAKEFINALCODE, 0);
+                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_MAKEFINALCODE));
 #else
-                pMD->MakeJitWorker(pHeader, 0, 0);
+                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS());
 #endif
             }
         }

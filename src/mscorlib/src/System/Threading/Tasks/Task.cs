@@ -137,7 +137,6 @@ namespace System.Threading.Tasks
     /// InternalWait method serves a potential marker for when a Task is entering a wait operation.
     /// </para>
     /// </remarks>
-    [HostProtection(Synchronization = true, ExternalThreading = true)]
     [DebuggerTypeProxy(typeof(SystemThreadingTasks_TaskDebugView))]
     [DebuggerDisplay("Id = {Id}, Status = {Status}, Method = {DebuggerDisplayMethodDescription}")]
     public class Task : IThreadPoolWorkItem, IAsyncResult, IDisposable
@@ -152,7 +151,7 @@ namespace System.Threading.Tasks
 
         private volatile int m_taskId; // this task's unique ID. initialized only if it is ever requested
 
-        internal object m_action;    // The body of the task.  Might be Action<object>, Action<TState> or Action.  Or possibly a Func.
+        internal Delegate m_action;    // The body of the task.  Might be Action<object>, Action<TState> or Action.  Or possibly a Func.
         // If m_action is set to null it will indicate that we operate in the
         // "externally triggered completion" mode, which is exclusively meant 
         // for the signalling Task<TResult> (aka. promise). In this mode,
@@ -164,10 +163,10 @@ namespace System.Threading.Tasks
         internal object m_stateObject; // A state object that can be optionally supplied, passed to action.
         internal TaskScheduler m_taskScheduler; // The task scheduler this task runs under. 
 
-        internal readonly Task m_parent; // A task's parent, or null if parent-less.
-
-
         internal volatile int m_stateFlags;
+
+        private Task ParentForDebugger => m_contingentProperties?.m_parent; // Private property used by a debugger to access this Task's parent
+        private int StateFlagsForDebugger => m_stateFlags; // Private property used by a debugger to access this Task's state flags
 
         // State constants for m_stateFlags;
         // The bits of m_stateFlags are allocated as follows:
@@ -250,7 +249,7 @@ namespace System.Threading.Tasks
         {
             // Additional context
 
-            internal ExecutionContext m_capturedContext; // The execution context to run the task within, if any.
+            internal ExecutionContext m_capturedContext; // The execution context to run the task within, if any. Only set from non-concurrent contexts.
 
             // Completion fields (exceptions and event)
 
@@ -273,6 +272,8 @@ namespace System.Threading.Tasks
             // A list of child tasks that threw an exception (TCEs don't count),
             // but haven't yet been waited on by the parent, lazily initialized.
             internal volatile List<Task> m_exceptionalChildren;
+            // A task's parent, or null if parent-less. Only set during Task construction.
+            internal Task m_parent; 
 
             /// <summary>
             /// Sets the internal completion event.
@@ -305,7 +306,7 @@ namespace System.Threading.Tasks
 
         // This field will only be instantiated to some non-null value if any ContingentProperties need to be set.
         // This will be a ContingentProperties instance or a type derived from it
-        internal volatile ContingentProperties m_contingentProperties;
+        internal ContingentProperties m_contingentProperties;
 
         // Special internal constructor to create an already-completed task.
         // if canceled==true, create a Canceled task, or else create a RanToCompletion task.
@@ -316,25 +317,15 @@ namespace System.Threading.Tasks
             if (canceled)
             {
                 m_stateFlags = TASK_STATE_CANCELED | TASK_STATE_CANCELLATIONACKNOWLEDGED | optionFlags;
-                ContingentProperties props;
-                m_contingentProperties = props = new ContingentProperties(); // can't have children, so just instantiate directly
-                props.m_cancellationToken = ct;
-                props.m_internalCancellationRequested = CANCELLATION_REQUESTED;
+                m_contingentProperties = new ContingentProperties() // can't have children, so just instantiate directly
+                {
+                    m_cancellationToken = ct,
+                    m_internalCancellationRequested = CANCELLATION_REQUESTED,
+                };
             }
             else
                 m_stateFlags = TASK_STATE_RAN_TO_COMPLETION | optionFlags;
         }
-
-        // Uncomment if/when we want Task.FromException
-        //// Special internal constructor to create an already-Faulted task.
-        //internal Task(Exception exception)
-        //{
-        //    Contract.Assert(exception != null);
-        //    ContingentProperties props;
-        //    m_contingentProperties = props = new ContingentProperties(); // can't have children, so just instantiate directly
-        //    props.m_exceptionsHolder.Add(exception);
-        //    m_stateFlags = TASK_STATE_FAULTED;
-        //}
 
         /// <summary>Constructor for use with promise-style tasks that aren't configurable.</summary>
         internal Task()
@@ -347,19 +338,24 @@ namespace System.Threading.Tasks
         // (action,TCO).  It should always be true.
         internal Task(object state, TaskCreationOptions creationOptions, bool promiseStyle)
         {
-            Contract.Assert(promiseStyle, "Promise CTOR: promiseStyle was false");
+            Debug.Assert(promiseStyle, "Promise CTOR: promiseStyle was false");
 
             // Check the creationOptions. We allow the AttachedToParent option to be specified for promise tasks.
             // Also allow RunContinuationsAsynchronously because this is the constructor called by TCS
             if ((creationOptions & ~(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously)) != 0)
             {
-                throw new ArgumentOutOfRangeException("creationOptions");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.creationOptions);
             }
 
-            // m_parent is readonly, and so must be set in the constructor.
             // Only set a parent if AttachedToParent is specified.
             if ((creationOptions & TaskCreationOptions.AttachedToParent) != 0)
-                m_parent = Task.InternalCurrent;
+            {
+                Task parent = Task.InternalCurrent;
+                if (parent != null)
+                {
+                    EnsureContingentPropertiesInitializedUnsafe().m_parent = parent;
+                }
+            }
 
             TaskConstructorCore(null, state, default(CancellationToken), creationOptions, InternalTaskOptions.PromiseTask, null);
         }
@@ -557,17 +553,16 @@ namespace System.Threading.Tasks
         {
             if (action == null)
             {
-                throw new ArgumentNullException("action");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.action);
             }
             Contract.EndContractBlock();
 
-            // This is readonly, and so must be set in the constructor
             // Keep a link to your parent if: (A) You are attached, or (B) you are self-replicating.
-            if (((creationOptions & TaskCreationOptions.AttachedToParent) != 0) ||
-                ((internalOptions & InternalTaskOptions.SelfReplicating) != 0)
-                )
+            if (parent != null &&
+                ((creationOptions & TaskCreationOptions.AttachedToParent) != 0 ||
+                 (internalOptions & InternalTaskOptions.SelfReplicating) != 0))
             {
-                m_parent = parent;
+                EnsureContingentPropertiesInitializedUnsafe().m_parent = parent;
             }
 
             TaskConstructorCore(action, state, cancellationToken, creationOptions, internalOptions, scheduler);
@@ -584,7 +579,7 @@ namespace System.Threading.Tasks
         /// <param name="cancellationToken">A CancellationToken for the Task.</param>
         /// <param name="creationOptions">Options to customize behavior of Task.</param>
         /// <param name="internalOptions">Internal options to customize behavior of Task.</param>
-        internal void TaskConstructorCore(object action, object state, CancellationToken cancellationToken,
+        internal void TaskConstructorCore(Delegate action, object state, CancellationToken cancellationToken,
             TaskCreationOptions creationOptions, InternalTaskOptions internalOptions, TaskScheduler scheduler)
         {
             m_action = action;
@@ -600,7 +595,7 @@ namespace System.Threading.Tasks
                       TaskCreationOptions.PreferFairness |
                       TaskCreationOptions.RunContinuationsAsynchronously)) != 0)
             {
-                throw new ArgumentOutOfRangeException("creationOptions");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.creationOptions);
             }
 
 #if DEBUG
@@ -613,19 +608,19 @@ namespace System.Threading.Tasks
                               InternalTaskOptions.ContinuationTask |
                               InternalTaskOptions.LazyCancellation |
                               InternalTaskOptions.QueuedByRuntime));
-            Contract.Assert(illegalInternalOptions == 0, "TaskConstructorCore: Illegal internal options");
+            Debug.Assert(illegalInternalOptions == 0, "TaskConstructorCore: Illegal internal options");
 #endif
 
             // Throw exception if the user specifies both LongRunning and SelfReplicating
             if (((creationOptions & TaskCreationOptions.LongRunning) != 0) &&
                 ((internalOptions & InternalTaskOptions.SelfReplicating) != 0))
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_ctor_LRandSR"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_ctor_LRandSR);
             }
 
             // Assign options to m_stateAndOptionsFlag.
-            Contract.Assert(m_stateFlags == 0, "TaskConstructorCore: non-zero m_stateFlags");
-            Contract.Assert((((int)creationOptions) | OptionsMask) == OptionsMask, "TaskConstructorCore: options take too many bits");
+            Debug.Assert(m_stateFlags == 0, "TaskConstructorCore: non-zero m_stateFlags");
+            Debug.Assert((((int)creationOptions) | OptionsMask) == OptionsMask, "TaskConstructorCore: options take too many bits");
             var tmpFlags = (int)creationOptions | (int)internalOptions;
             if ((m_action == null) || ((internalOptions & InternalTaskOptions.ContinuationTask) != 0))
             {
@@ -640,19 +635,20 @@ namespace System.Threading.Tasks
             // We can safely call the creator task's AddNewChild() method to register it, 
             // because at this point we are already on its thread of execution.
 
-            if (m_parent != null
+            Task parent = m_contingentProperties?.m_parent;
+            if (parent != null
                 && ((creationOptions & TaskCreationOptions.AttachedToParent) != 0)
-                && ((m_parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
+                && ((parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
                 )
             {
-                m_parent.AddNewChild();
+                parent.AddNewChild();
             }
 
             // if we have a non-null cancellationToken, allocate the contingent properties to save it
             // we need to do this as the very last thing in the construction path, because the CT registration could modify m_stateFlags
             if (cancellationToken.CanBeCanceled)
             {
-                Contract.Assert((internalOptions &
+                Debug.Assert((internalOptions &
                     (InternalTaskOptions.ChildReplica | InternalTaskOptions.SelfReplicating | InternalTaskOptions.ContinuationTask)) == 0,
                     "TaskConstructorCore: Did not expect to see cancelable token for replica/replicating or continuation task.");
 
@@ -668,7 +664,7 @@ namespace System.Threading.Tasks
         {
             // There is no need to worry about concurrency issues here because we are in the constructor path of the task --
             // there should not be any race conditions to set m_contingentProperties at this point.
-            ContingentProperties props = EnsureContingentPropertiesInitialized(needsProtection: false);
+            ContingentProperties props = EnsureContingentPropertiesInitializedUnsafe();
             props.m_cancellationToken = cancellationToken;
 
             try
@@ -716,11 +712,12 @@ namespace System.Threading.Tasks
             {
                 // If we have an exception related to our CancellationToken, then we need to subtract ourselves
                 // from our parent before throwing it.
-                if ((m_parent != null) &&
+                Task parent = m_contingentProperties?.m_parent;
+                if ((parent != null) &&
                     ((Options & TaskCreationOptions.AttachedToParent) != 0)
-                     && ((m_parent.Options & TaskCreationOptions.DenyChildAttach) == 0))
+                     && ((parent.Options & TaskCreationOptions.DenyChildAttach) == 0))
                 {
-                    m_parent.DisregardChild();
+                    parent.DisregardChild();
                 }
                 throw;
             }
@@ -745,7 +742,7 @@ namespace System.Threading.Tasks
                     antecedentTask.RemoveContinuation(continuation);
                 }
             }
-            Contract.Assert(targetTask != null,
+            Debug.Assert(targetTask != null,
                 "targetTask should have been non-null, with the supplied argument being a task or a tuple containing one");
             targetTask.InternalCancel(false);
         }
@@ -755,7 +752,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                Delegate d = (Delegate)m_action;
+                Delegate d = m_action;
                 return d != null ? d.Method.ToString() : "{null}";
             }
         }
@@ -766,10 +763,9 @@ namespace System.Threading.Tasks
         /// </summary>
         /// <param name="stackMark">A stack crawl mark pointing to the frame of the caller.</param>
 
-        [SecuritySafeCritical]
         internal void PossiblyCaptureContext(ref StackCrawlMark stackMark)
         {
-            Contract.Assert(m_contingentProperties == null || m_contingentProperties.m_capturedContext == null,
+            Debug.Assert(m_contingentProperties == null || m_contingentProperties.m_capturedContext == null,
                 "Captured an ExecutionContext when one was already captured.");
 
             // In the legacy .NET 3.5 build, we don't have the optimized overload of Capture()
@@ -793,7 +789,7 @@ namespace System.Threading.Tasks
         // a read of the volatile m_stateFlags field.
         internal static TaskCreationOptions OptionsMethod(int flags)
         {
-            Contract.Assert((OptionsMask & 1) == 1, "OptionsMask needs a shift in Options.get");
+            Debug.Assert((OptionsMask & 1) == 1, "OptionsMask needs a shift in Options.get");
             return (TaskCreationOptions)(flags & OptionsMask);
         }
 
@@ -843,7 +839,7 @@ namespace System.Threading.Tasks
         /// <param name="enabled">true to set the bit; false to unset the bit.</param>
         internal void SetNotificationForWaitCompletion(bool enabled)
         {
-            Contract.Assert((Options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0,
+            Debug.Assert((Options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0,
                 "Should only be used for promise-style tasks"); // hasn't been vetted on other kinds as there hasn't been a need
 
             if (enabled)
@@ -851,7 +847,7 @@ namespace System.Threading.Tasks
                 // Atomically set the END_AWAIT_NOTIFICATION bit
                 bool success = AtomicStateUpdate(TASK_STATE_WAIT_COMPLETION_NOTIFICATION,
                                   TASK_STATE_COMPLETED_MASK | TASK_STATE_COMPLETION_RESERVED);
-                Contract.Assert(success, "Tried to set enabled on completed Task");
+                Debug.Assert(success, "Tried to set enabled on completed Task");
             }
             else
             {
@@ -888,7 +884,7 @@ namespace System.Threading.Tasks
         /// <returns>true if any of the tasks require notification; otherwise, false.</returns>
         internal static bool AnyTaskRequiresNotifyDebuggerOfWaitCompletion(Task[] tasks)
         {
-            Contract.Assert(tasks != null, "Expected non-null array of tasks");
+            Debug.Assert(tasks != null, "Expected non-null array of tasks");
             foreach (var task in tasks)
             {
                 if (task != null &&
@@ -928,7 +924,7 @@ namespace System.Threading.Tasks
                 // bit was unset between the time that it was checked and this method was called.
                 // It's so remote a chance that it's worth having the assert to protect against misuse.
                 bool isWaitNotificationEnabled = IsWaitNotificationEnabled;
-                Contract.Assert(isWaitNotificationEnabled, "Should only be called if the wait completion bit is set.");
+                Debug.Assert(isWaitNotificationEnabled, "Should only be called if the wait completion bit is set.");
                 return isWaitNotificationEnabled;
             }
         }
@@ -948,7 +944,7 @@ namespace System.Threading.Tasks
             // It's theoretically possible but extremely rare that this assert could fire because the 
             // bit was unset between the time that it was checked and this method was called.
             // It's so remote a chance that it's worth having the assert to protect against misuse.
-            Contract.Assert(IsWaitNotificationEnabled, "Should only be called if the wait completion bit is set.");
+            Debug.Assert(IsWaitNotificationEnabled, "Should only be called if the wait completion bit is set.");
 
             // Now that we're notifying the debugger, clear the bit.  The debugger should do this anyway,
             // but this adds a bit of protection in case it fails to, and given that the debugger is involved, 
@@ -973,7 +969,7 @@ namespace System.Threading.Tasks
                 m_stateFlags |= Task.TASK_STATE_TASKSCHEDULED_WAS_FIRED;
 
                 Task currentTask = Task.InternalCurrent;
-                Task parentTask = this.m_parent;
+                Task parentTask = m_contingentProperties?.m_parent;
                 etwLog.TaskScheduled(ts.Id, currentTask == null ? 0 : currentTask.Id,
                                      this.Id, parentTask == null ? 0 : parentTask.Id, (int)this.Options,
                                      System.Threading.Thread.GetDomainID());
@@ -993,9 +989,9 @@ namespace System.Threading.Tasks
         /// </summary>
         internal void AddNewChild()
         {
-            Contract.Assert(Task.InternalCurrent == this || this.IsSelfReplicatingRoot, "Task.AddNewChild(): Called from an external context");
+            Debug.Assert(Task.InternalCurrent == this || this.IsSelfReplicatingRoot, "Task.AddNewChild(): Called from an external context");
 
-            var props = EnsureContingentPropertiesInitialized(needsProtection: true);
+            var props = EnsureContingentPropertiesInitialized();
 
             if (props.m_completionCountdown == 1 && !IsSelfReplicatingRoot)
             {
@@ -1016,10 +1012,10 @@ namespace System.Threading.Tasks
         // We need to subtract that child from m_completionCountdown, or the parent will never complete.
         internal void DisregardChild()
         {
-            Contract.Assert(Task.InternalCurrent == this, "Task.DisregardChild(): Called from an external context");
+            Debug.Assert(Task.InternalCurrent == this, "Task.DisregardChild(): Called from an external context");
 
-            var props = EnsureContingentPropertiesInitialized(needsProtection: true);
-            Contract.Assert(props.m_completionCountdown >= 2, "Task.DisregardChild(): Expected parent count to be >= 2");
+            var props = EnsureContingentPropertiesInitialized();
+            Debug.Assert(props.m_completionCountdown >= 2, "Task.DisregardChild(): Expected parent count to be >= 2");
             Interlocked.Decrement(ref props.m_completionCountdown);
         }
 
@@ -1070,28 +1066,28 @@ namespace System.Threading.Tasks
             // set m_action to null.  We would want to know if this is the reason that m_action == null.
             if (IsCompletedMethod(flags))
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_Start_TaskCompleted"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_Start_TaskCompleted);
             }
 
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
 
             var options = OptionsMethod(flags);
             if ((options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_Start_Promise"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_Start_Promise);
             }
             if ((options & (TaskCreationOptions)InternalTaskOptions.ContinuationTask) != 0)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_Start_ContinuationTask"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_Start_ContinuationTask);
             }
 
             // Make sure that Task only gets started once.  Or else throw an exception.
             if (Interlocked.CompareExchange(ref m_taskScheduler, scheduler, null) != null)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_Start_AlreadyStarted"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_Start_AlreadyStarted);
             }
 
             ScheduleAndStart(true);
@@ -1153,7 +1149,7 @@ namespace System.Threading.Tasks
         {
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -1163,7 +1159,6 @@ namespace System.Threading.Tasks
         //
         // Internal version of RunSynchronously that allows not waiting for completion.
         // 
-        [SecuritySafeCritical] // Needed for QueueTask
         internal void InternalRunSynchronously(TaskScheduler scheduler, bool waitForCompletion)
         {
             Contract.Requires(scheduler != null, "Task.InternalRunSynchronously(): null TaskScheduler");
@@ -1175,25 +1170,25 @@ namespace System.Threading.Tasks
             var options = OptionsMethod(flags);
             if ((options & (TaskCreationOptions)InternalTaskOptions.ContinuationTask) != 0)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_RunSynchronously_Continuation"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_RunSynchronously_Continuation);
             }
 
             // Can't call this method on a promise-style task
             if ((options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_RunSynchronously_Promise"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_RunSynchronously_Promise);
             }
 
             // Can't call this method on a task that has already completed
             if (IsCompletedMethod(flags))
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_RunSynchronously_TaskCompleted"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_RunSynchronously_TaskCompleted);
             }
 
             // Make sure that Task only gets started once.  Or else throw an exception.
             if (Interlocked.CompareExchange(ref m_taskScheduler, scheduler, null) != null)
             {
-                throw new InvalidOperationException(Environment.GetResourceString("Task_RunSynchronously_AlreadyStarted"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_RunSynchronously_AlreadyStarted);
             }
 
             // execute only if we successfully cancel when concurrent cancel attempts are made.
@@ -1237,7 +1232,7 @@ namespace System.Threading.Tasks
                         // Mark ourselves as "handled" to avoid crashing the finalizer thread if the caller neglects to
                         // call Wait() on this task.
                         // m_contingentProperties.m_exceptionsHolder *should* already exist after AddException()
-                        Contract.Assert(
+                        Debug.Assert(
                             (m_contingentProperties != null) &&
                             (m_contingentProperties.m_exceptionsHolder != null) &&
                             (m_contingentProperties.m_exceptionsHolder.ContainsFaultList),
@@ -1254,9 +1249,9 @@ namespace System.Threading.Tasks
             }
             else
             {
-                Contract.Assert((m_stateFlags & TASK_STATE_CANCELED) != 0, "Task.RunSynchronously: expected TASK_STATE_CANCELED to be set");
+                Debug.Assert((m_stateFlags & TASK_STATE_CANCELED) != 0, "Task.RunSynchronously: expected TASK_STATE_CANCELED to be set");
                 // Can't call this method on canceled task.
-                throw new InvalidOperationException(Environment.GetResourceString("Task_RunSynchronously_TaskCompleted"));
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_RunSynchronously_TaskCompleted);
             }
         }
 
@@ -1274,7 +1269,7 @@ namespace System.Threading.Tasks
             // Validate arguments.
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -1405,7 +1400,7 @@ namespace System.Threading.Tasks
                 // Only return an exception in faulted state (skip manufactured exceptions)
                 // A "benevolent" race condition makes it possible to return null when IsFaulted is
                 // true (i.e., if IsFaulted is set just after the check to IsFaulted above).
-                Contract.Assert((e == null) || IsFaulted, "Task.Exception_get(): returning non-null value when not Faulted");
+                Debug.Assert((e == null) || IsFaulted, "Task.Exception_get(): returning non-null value when not Faulted");
 
                 return e;
             }
@@ -1467,7 +1462,7 @@ namespace System.Threading.Tasks
             get
             {
                 // check both the internal cancellation request flag and the CancellationToken attached to this task
-                var props = m_contingentProperties;
+                var props = Volatile.Read(ref m_contingentProperties);
                 return props != null &&
                     (props.m_internalCancellationRequested == CANCELLATION_REQUESTED ||
                      props.m_cancellationToken.IsCancellationRequested);
@@ -1478,34 +1473,21 @@ namespace System.Threading.Tasks
         /// Ensures that the contingent properties field has been initialized.
         /// ASSUMES THAT m_stateFlags IS ALREADY SET!
         /// </summary>
-        /// <param name="needsProtection">true if this needs to be done in a thread-safe manner; otherwise, false.</param>
         /// <returns>The initialized contingent properties object.</returns>
-        internal ContingentProperties EnsureContingentPropertiesInitialized(bool needsProtection)
+        internal ContingentProperties EnsureContingentPropertiesInitialized()
         {
-            var props = m_contingentProperties;
-            return props != null ? props : EnsureContingentPropertiesInitializedCore(needsProtection);
+            return LazyInitializer.EnsureInitialized(ref m_contingentProperties, () => new ContingentProperties());
         }
 
         /// <summary>
-        /// Initializes the contingent properties object.  This assumes a check has already been done for nullness.
+        /// Without synchronization, ensures that the contingent properties field has been initialized.
+        /// ASSUMES THAT m_stateFlags IS ALREADY SET!
         /// </summary>
-        /// <param name="needsProtection">true if this needs to be done in a thread-safe manner; otherwise, false.</param>
         /// <returns>The initialized contingent properties object.</returns>
-        private ContingentProperties EnsureContingentPropertiesInitializedCore(bool needsProtection)
+        internal ContingentProperties EnsureContingentPropertiesInitializedUnsafe()
         {
-            if (needsProtection)
-            {
-                return LazyInitializer.EnsureInitialized<ContingentProperties>(ref m_contingentProperties, s_createContingentProperties);
-            }
-            else
-            {
-                Contract.Assert(m_contingentProperties == null, "Expected props to be null after checking and with needsProtection == false");
-                return m_contingentProperties = new ContingentProperties();
-            }
+            return m_contingentProperties ?? (m_contingentProperties = new ContingentProperties());
         }
-
-        // Cached functions for lazily initializing contingent properties
-        private static readonly Func<ContingentProperties> s_createContingentProperties = () => new ContingentProperties();
 
         /// <summary>
         /// This internal property provides access to the CancellationToken that was set on the task 
@@ -1515,7 +1497,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                var props = m_contingentProperties;
+                var props = Volatile.Read(ref m_contingentProperties);
                 return (props == null) ? default(CancellationToken) : props.m_cancellationToken;
             }
         }
@@ -1590,7 +1572,7 @@ namespace System.Threading.Tasks
                 bool isDisposed = (m_stateFlags & TASK_STATE_DISPOSED) != 0;
                 if (isDisposed)
                 {
-                    throw new ObjectDisposedException(null, Environment.GetResourceString("Task_ThrowIfDisposed"));
+                    ThrowHelper.ThrowObjectDisposedException(ExceptionResource.Task_ThrowIfDisposed);
                 }
                 return CompletedEvent.WaitHandle;
             }
@@ -1659,7 +1641,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                var contingentProps = EnsureContingentPropertiesInitialized(needsProtection: true);
+                var contingentProps = EnsureContingentPropertiesInitialized();
                 if (contingentProps.m_completionEvent == null)
                 {
                     bool wasCompleted = IsCompleted;
@@ -1706,7 +1688,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                var props = m_contingentProperties;
+                var props = Volatile.Read(ref m_contingentProperties);
                 return props != null ? props.m_completionCountdown - 1 : 0;
             }
         }
@@ -1718,7 +1700,7 @@ namespace System.Threading.Tasks
         {
             get
             {
-                var props = m_contingentProperties;
+                var props = Volatile.Read(ref m_contingentProperties);
                 return (props != null) && (props.m_exceptionsHolder != null) && (props.m_exceptionsHolder.ContainsFaultList);
             }
         }
@@ -1755,9 +1737,7 @@ namespace System.Threading.Tasks
                 }
                 else
                 {
-                    var props = m_contingentProperties;
-                    if (props != null && props.m_capturedContext != null) return props.m_capturedContext;
-                    else return ExecutionContext.PreAllocatedDefault;
+                    return m_contingentProperties?.m_capturedContext ?? ExecutionContext.PreAllocatedDefault;
                 }
             }
             set
@@ -1769,7 +1749,7 @@ namespace System.Threading.Tasks
                 }
                 else if (!value.IsPreAllocatedDefault) // not the default context, then inflate the contingent properties and set it
                 {
-                    EnsureContingentPropertiesInitialized(needsProtection: false).m_capturedContext = value;
+                    EnsureContingentPropertiesInitializedUnsafe().m_capturedContext = value;
                 }
                 //else do nothing, this is the default context
             }
@@ -1852,11 +1832,11 @@ namespace System.Threading.Tasks
                 // Task must be completed to dispose
                 if (!IsCompleted)
                 {
-                    throw new InvalidOperationException(Environment.GetResourceString("Task_Dispose_NotCompleted"));
+                    ThrowHelper.ThrowInvalidOperationException(ExceptionResource.Task_Dispose_NotCompleted);
                 }
 
                 // Dispose of the underlying completion event if it exists
-                var cp = m_contingentProperties;
+                var cp = Volatile.Read(ref m_contingentProperties);
                 if (cp != null)
                 {
                     // Make a copy to protect against racing Disposes.
@@ -1901,11 +1881,10 @@ namespace System.Threading.Tasks
         /// underneath us.  If false, TASK_STATE_STARTED bit is OR-ed right in.  This
         /// allows us to streamline things a bit for StartNew(), where competing cancellations
         /// are not a problem.</param>
-        [SecuritySafeCritical] // Needed for QueueTask
         internal void ScheduleAndStart(bool needsProtection)
         {
-            Contract.Assert(m_taskScheduler != null, "expected a task scheduler to have been selected");
-            Contract.Assert((m_stateFlags & TASK_STATE_STARTED) == 0, "task has already started");
+            Debug.Assert(m_taskScheduler != null, "expected a task scheduler to have been selected");
+            Debug.Assert((m_stateFlags & TASK_STATE_STARTED) == 0, "task has already started");
 
             // Set the TASK_STATE_STARTED bit
             if (needsProtection)
@@ -1929,7 +1908,7 @@ namespace System.Threading.Tasks
             if (AsyncCausalityTracer.LoggingOn && (Options & (TaskCreationOptions)InternalTaskOptions.ContinuationTask) == 0)
             {
                 //For all other task than TaskContinuations we want to log. TaskContinuations log in their constructor
-                AsyncCausalityTracer.TraceOperationCreation(CausalityTraceLevel.Required, this.Id, "Task: "+((Delegate)m_action).Method.Name, 0);
+                AsyncCausalityTracer.TraceOperationCreation(CausalityTraceLevel.Required, this.Id, "Task: " + m_action.Method.Name, 0);
             }
 
 
@@ -1959,7 +1938,7 @@ namespace System.Threading.Tasks
                 if ((Options & (TaskCreationOptions)InternalTaskOptions.ContinuationTask) == 0)
                 {
                     // m_contingentProperties.m_exceptionsHolder *should* already exist after AddException()
-                    Contract.Assert(
+                    Debug.Assert(
                         (m_contingentProperties != null) &&
                         (m_contingentProperties.m_exceptionsHolder != null) &&
                         (m_contingentProperties.m_exceptionsHolder.ContainsFaultList),
@@ -1998,13 +1977,13 @@ namespace System.Threading.Tasks
             var eoAsEdi = exceptionObject as ExceptionDispatchInfo;
             var eoAsEnumerableEdi = exceptionObject as IEnumerable<ExceptionDispatchInfo>;
 
-            Contract.Assert(
+            Debug.Assert(
                 eoAsException != null || eoAsEnumerableException != null || eoAsEdi != null || eoAsEnumerableEdi != null,
                 "Task.AddException: Expected an Exception, ExceptionDispatchInfo, or an IEnumerable<> of one of those");
 
             var eoAsOce = exceptionObject as OperationCanceledException;
 
-            Contract.Assert(
+            Debug.Assert(
                 !representsCancellation ||
                 eoAsOce != null ||
                 (eoAsEdi != null && eoAsEdi.SourceException is OperationCanceledException),
@@ -2018,7 +1997,7 @@ namespace System.Threading.Tasks
             //
 
             // Lazily initialize the holder, ensuring only one thread wins.
-            var props = EnsureContingentPropertiesInitialized(needsProtection: true);
+            var props = EnsureContingentPropertiesInitialized();
             if (props.m_exceptionsHolder == null)
             {
                 TaskExceptionHolder holder = new TaskExceptionHolder(this);
@@ -2095,7 +2074,7 @@ namespace System.Threading.Tasks
             {
                 // There are exceptions; get the aggregate and optionally add the canceled
                 // exception to the aggregate (if applicable).
-                Contract.Assert(m_contingentProperties != null); // ExceptionRecorded ==> m_contingentProperties != null
+                Debug.Assert(m_contingentProperties != null); // ExceptionRecorded ==> m_contingentProperties != null
 
                 // No need to lock around this, as other logic prevents the consumption of exceptions
                 // before they have been completely processed.
@@ -2114,7 +2093,7 @@ namespace System.Threading.Tasks
         internal ReadOnlyCollection<ExceptionDispatchInfo> GetExceptionDispatchInfos()
         {
             bool exceptionsAvailable = IsFaulted && ExceptionRecorded;
-            Contract.Assert(exceptionsAvailable, "Must only be used when the task has faulted with exceptions.");
+            Debug.Assert(exceptionsAvailable, "Must only be used when the task has faulted with exceptions.");
             return exceptionsAvailable ?
                 m_contingentProperties.m_exceptionsHolder.GetExceptionDispatchInfos() :
                 new ReadOnlyCollection<ExceptionDispatchInfo>(new ExceptionDispatchInfo[0]);
@@ -2124,12 +2103,8 @@ namespace System.Threading.Tasks
         /// <returns>The ExceptionDispatchInfo.  May be null if no OCE was stored for the task.</returns>
         internal ExceptionDispatchInfo GetCancellationExceptionDispatchInfo()
         {
-            Contract.Assert(IsCanceled, "Must only be used when the task has canceled.");
-            var props = m_contingentProperties;
-            if (props == null) return null;
-            var holder = props.m_exceptionsHolder;
-            if (holder == null) return null;
-            return holder.GetCancellationExceptionDispatchInfo(); // may be null
+            Debug.Assert(IsCanceled, "Must only be used when the task has canceled.");
+            return Volatile.Read(ref m_contingentProperties)?.m_exceptionsHolder?.GetCancellationExceptionDispatchInfo(); // may be null
         }
 
         /// <summary>
@@ -2160,10 +2135,11 @@ namespace System.Threading.Tasks
         /// </summary>
         internal void UpdateExceptionObservedStatus()
         {
-            if ((m_parent != null)
+            Task parent = m_contingentProperties?.m_parent;
+            if ((parent != null)
                 && ((Options & TaskCreationOptions.AttachedToParent) != 0)
-                && ((m_parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
-                && Task.InternalCurrent == m_parent)
+                && ((parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
+                && Task.InternalCurrent == parent)
             {
                 m_stateFlags |= TASK_STATE_EXCEPTIONOBSERVEDBYPARENT;
             }
@@ -2213,7 +2189,7 @@ namespace System.Threading.Tasks
             }
             else
             {
-                var props = m_contingentProperties;
+                var props = Volatile.Read(ref m_contingentProperties);
 
                 if (props == null || // no contingent properties means no children, so it's safe to complete ourselves
                     (props.m_completionCountdown == 1 && !IsSelfReplicatingRoot) ||
@@ -2317,7 +2293,7 @@ namespace System.Threading.Tasks
 
             // Set the completion event if it's been lazy allocated.
             // And if we made a cancellation registration, it's now unnecessary.
-            var cp = m_contingentProperties;
+            var cp = Volatile.Read(ref m_contingentProperties);
             if (cp != null)
             {
                 cp.SetCompleted();
@@ -2344,11 +2320,12 @@ namespace System.Threading.Tasks
             m_action = null;
 
             // Notify parent if this was an attached task
-            if (m_parent != null
-                 && ((m_parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
+            Task parent = m_contingentProperties?.m_parent;
+            if (parent != null
+                 && ((parent.CreationOptions & TaskCreationOptions.DenyChildAttach) == 0)
                  && (((TaskCreationOptions)(m_stateFlags & OptionsMask)) & TaskCreationOptions.AttachedToParent) != 0)
             {
-                m_parent.ProcessChildCompletion(this);
+                parent.ProcessChildCompletion(this);
             }
 
             // Activate continuations (if any).
@@ -2363,9 +2340,9 @@ namespace System.Threading.Tasks
             Contract.Requires(childTask != null);
             Contract.Requires(childTask.IsCompleted, "ProcessChildCompletion was called for an uncompleted task");
 
-            Contract.Assert(childTask.m_parent == this, "ProcessChildCompletion should only be called for a child of this task");
+            Debug.Assert(childTask.m_contingentProperties?.m_parent == this, "ProcessChildCompletion should only be called for a child of this task");
 
-            var props = m_contingentProperties;
+            var props = Volatile.Read(ref m_contingentProperties);
 
             // if the child threw and we haven't observed it we need to save it for future reference
             if (childTask.IsFaulted && !childTask.IsExceptionObservedByParent)
@@ -2410,24 +2387,24 @@ namespace System.Threading.Tasks
             // simultaneously on the same task from two different contexts.  This can result in m_exceptionalChildren
             // being nulled out while it is being processed, which could lead to a NullReferenceException.  To
             // protect ourselves, we'll cache m_exceptionalChildren in a local variable.
-            var props = m_contingentProperties;
-            List<Task> tmp = (props != null) ? props.m_exceptionalChildren : null;
+            var props = Volatile.Read(ref m_contingentProperties);
+            List<Task> exceptionalChildren = props?.m_exceptionalChildren;
 
-            if (tmp != null)
+            if (exceptionalChildren != null)
             {
                 // This lock is necessary because even though AddExceptionsFromChildren is last to execute, it may still 
                 // be racing with the code segment at the bottom of Finish() that prunes the exceptional child array. 
-                lock (tmp)
+                lock (exceptionalChildren)
                 {
-                    foreach (Task task in tmp)
+                    foreach (Task task in exceptionalChildren)
                     {
                         // Ensure any exceptions thrown by children are added to the parent.
                         // In doing this, we are implicitly marking children as being "handled".
-                        Contract.Assert(task.IsCompleted, "Expected all tasks in list to be completed");
+                        Debug.Assert(task.IsCompleted, "Expected all tasks in list to be completed");
                         if (task.IsFaulted && !task.IsExceptionObservedByParent)
                         {
-                            TaskExceptionHolder exceptionHolder = task.m_contingentProperties.m_exceptionsHolder;
-                            Contract.Assert(exceptionHolder != null);
+                            TaskExceptionHolder exceptionHolder = Volatile.Read(ref task.m_contingentProperties).m_exceptionsHolder;
+                            Debug.Assert(exceptionHolder != null);
 
                             // No locking necessary since child task is finished adding exceptions
                             // and concurrent CreateExceptionObject() calls do not constitute
@@ -2454,7 +2431,7 @@ namespace System.Threading.Tasks
         /// <param name="delegateRan">Whether the delegate was executed.</param>
         internal void FinishThreadAbortedTask(bool bTAEAddedToExceptionHolder, bool delegateRan)
         {
-            Contract.Assert(!bTAEAddedToExceptionHolder || (m_contingentProperties != null && m_contingentProperties.m_exceptionsHolder != null),
+            Debug.Assert(!bTAEAddedToExceptionHolder || m_contingentProperties?.m_exceptionsHolder != null,
                             "FinishThreadAbortedTask() called on a task whose exception holder wasn't initialized");
 
             // this will only be false for non-root self replicating task copies, because all of their exceptions go to the root task.
@@ -2690,7 +2667,6 @@ namespace System.Threading.Tasks
         /// IThreadPoolWorkItem override, which is the entry function for this task when the TP scheduler decides to run it.
         /// 
         /// </summary>
-        [SecurityCritical]
         void IThreadPoolWorkItem.ExecuteWorkItem()
         {
             ExecuteEntry(false);
@@ -2700,7 +2676,6 @@ namespace System.Threading.Tasks
         /// The ThreadPool calls this if a ThreadAbortException is thrown while trying to execute this workitem.  This may occur
         /// before Task would otherwise be able to observe it.  
         /// </summary>
-        [SecurityCritical]
         void IThreadPoolWorkItem.MarkAborted(ThreadAbortException tae)
         {
             // If the task has marked itself as Completed, then it either a) already observed this exception (so we shouldn't handle it here)
@@ -2719,7 +2694,6 @@ namespace System.Threading.Tasks
         /// </summary>
         /// <param name="bPreventDoubleExecution"> Performs atomic updates to prevent double execution. Should only be set to true
         /// in codepaths servicing user provided TaskSchedulers. The ConcRT or ThreadPool schedulers don't need this. </param>
-        [SecuritySafeCritical]
         internal bool ExecuteEntry(bool bPreventDoubleExecution)
         {
             if (bPreventDoubleExecution || ((Options & (TaskCreationOptions)InternalTaskOptions.SelfReplicating) != 0))
@@ -2761,7 +2735,6 @@ namespace System.Threading.Tasks
         }
 
         // A trick so we can refer to the TLS slot with a byref.
-        [SecurityCritical]
         private void ExecuteWithThreadLocal(ref Task currentTaskSlot)
         {
             // Remember the current task so we can restore it after running, and then
@@ -2838,14 +2811,12 @@ namespace System.Threading.Tasks
         }
 
         // Cached callback delegate that's lazily initialized due to ContextCallback being SecurityCritical
-        [SecurityCritical]
         private static ContextCallback s_ecCallback;
 
-        [SecurityCritical]
         private static void ExecutionContextCallback(object obj)
         {
             Task task = obj as Task;
-            Contract.Assert(task != null, "expected a task object");
+            Debug.Assert(task != null, "expected a task object");
             task.Execute();
         }
 
@@ -2856,7 +2827,7 @@ namespace System.Threading.Tasks
         internal virtual void InnerInvoke()
         {
             // Invoke the delegate
-            Contract.Assert(m_action != null, "Null action in InnerInvoke()");
+            Debug.Assert(m_action != null, "Null action in InnerInvoke()");
             var action = m_action as Action;
             if (action != null)
             {
@@ -2869,7 +2840,7 @@ namespace System.Threading.Tasks
                 actionWithState(m_stateObject);
                 return;
             }
-            Contract.Assert(false, "Invalid m_action in Task");
+            Debug.Assert(false, "Invalid m_action in Task");
         }
 
         /// <summary>
@@ -2948,7 +2919,6 @@ namespace System.Threading.Tasks
         /// <param name="flowExecutionContext">Whether to flow ExecutionContext across the await.</param>
         /// <param name="stackMark">A stack crawl mark tied to execution context.</param>
         /// <exception cref="System.InvalidOperationException">The awaiter was not properly initialized.</exception>
-        [SecurityCritical]
         internal void SetContinuationForAwait(
             Action continuationAction, bool continueOnCapturedContext, bool flowExecutionContext, ref StackCrawlMark stackMark)
         {
@@ -3005,7 +2975,7 @@ namespace System.Threading.Tasks
             }
             else
             {
-                Contract.Assert(!flowExecutionContext, "We already determined we're not required to flow context.");
+                Debug.Assert(!flowExecutionContext, "We already determined we're not required to flow context.");
                 if (!AddTaskContinuation(continuationAction, addBeforeOthers: false))
                     AwaitTaskContinuation.UnsafeScheduleAction(continuationAction, this);
             }
@@ -3038,7 +3008,7 @@ namespace System.Threading.Tasks
             Wait(Timeout.Infinite, default(CancellationToken));
 
 #if DEBUG
-            Contract.Assert(waitResult, "expected wait to succeed");
+            Debug.Assert(waitResult, "expected wait to succeed");
 #endif
         }
 
@@ -3066,7 +3036,7 @@ namespace System.Threading.Tasks
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
             if (totalMilliseconds < -1 || totalMilliseconds > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException("timeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.timeout);
             }
 
             return Wait((int)totalMilliseconds, default(CancellationToken));
@@ -3143,7 +3113,7 @@ namespace System.Threading.Tasks
         {
             if (millisecondsTimeout < -1)
             {
-                throw new ArgumentOutOfRangeException("millisecondsTimeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.millisecondsTimeout);
             }
             Contract.EndContractBlock();
 
@@ -3173,7 +3143,7 @@ namespace System.Threading.Tasks
                 ThrowIfExceptional(true);
             }
 
-            Contract.Assert((m_stateFlags & TASK_STATE_FAULTED) == 0, "Task.Wait() completing when in Faulted state.");
+            Debug.Assert((m_stateFlags & TASK_STATE_FAULTED) == 0, "Task.Wait() completing when in Faulted state.");
 
             return true;
         }
@@ -3249,7 +3219,7 @@ namespace System.Threading.Tasks
                 }
             }
 
-            Contract.Assert(IsCompleted || millisecondsTimeout != Timeout.Infinite);
+            Debug.Assert(IsCompleted || millisecondsTimeout != Timeout.Infinite);
 
             // ETW event for Task Wait End
             if (etwIsEnabled)
@@ -3377,7 +3347,6 @@ namespace System.Threading.Tasks
         /// For custom schedulers we also attempt an atomic state transition.
         /// </param>
         /// <returns>true if the task was successfully canceled; otherwise, false.</returns>
-        [SecuritySafeCritical]
         internal bool InternalCancel(bool bCancelNonExecutingOnly)
         {
             Contract.Requires((Options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) == 0, "Task.InternalCancel() did not expect promise-style task");
@@ -3445,7 +3414,7 @@ namespace System.Threading.Tasks
                 if (bPopSucceeded)
                 {
                     // hitting this would mean something wrong with the AtomicStateUpdate above
-                    Contract.Assert(!mustCleanup, "Possibly an invalid state transition call was made in InternalCancel()");
+                    Debug.Assert(!mustCleanup, "Possibly an invalid state transition call was made in InternalCancel()");
 
                     // Include TASK_STATE_DELEGATE_INVOKED in "illegal" bits to protect against the situation where
                     // TS.TryDequeue() returns true but the task is still left on the queue.
@@ -3475,9 +3444,7 @@ namespace System.Threading.Tasks
         internal void RecordInternalCancellationRequest()
         {
             // Record the cancellation request.
-            var props = EnsureContingentPropertiesInitialized(needsProtection: true);
-            props.m_internalCancellationRequested = CANCELLATION_REQUESTED;
-
+            EnsureContingentPropertiesInitialized().m_internalCancellationRequested = CANCELLATION_REQUESTED;
         }
 
         // Breaks out logic for recording a cancellation request
@@ -3487,8 +3454,8 @@ namespace System.Threading.Tasks
         {
             RecordInternalCancellationRequest();
 
-            Contract.Assert((Options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0, "Task.RecordInternalCancellationRequest(CancellationToken) only valid for promise-style task");
-            Contract.Assert(m_contingentProperties.m_cancellationToken == default(CancellationToken));
+            Debug.Assert((Options & (TaskCreationOptions)InternalTaskOptions.PromiseTask) != 0, "Task.RecordInternalCancellationRequest(CancellationToken) only valid for promise-style task");
+            Debug.Assert(m_contingentProperties.m_cancellationToken == default(CancellationToken));
 
             // Store the supplied cancellation token as this task's token.
             // Waiting on this task will then result in an OperationCanceledException containing this token.
@@ -3513,11 +3480,11 @@ namespace System.Threading.Tasks
                 if (oce == null)
                 {
                     var edi = cancellationException as ExceptionDispatchInfo;
-                    Contract.Assert(edi != null, "Expected either an OCE or an EDI");
+                    Debug.Assert(edi != null, "Expected either an OCE or an EDI");
                     oce = edi.SourceException as OperationCanceledException;
-                    Contract.Assert(oce != null, "Expected EDI to contain an OCE");
+                    Debug.Assert(oce != null, "Expected EDI to contain an OCE");
                 }
-                Contract.Assert(oce.CancellationToken == tokenToRecord, 
+                Debug.Assert(oce.CancellationToken == tokenToRecord, 
                                 "Expected OCE's token to match the provided token.");
 #endif
                 AddException(cancellationException, representsCancellation: true);
@@ -3528,16 +3495,16 @@ namespace System.Threading.Tasks
         // And this method should be called at most once per task.
         internal void CancellationCleanupLogic()
         {
-            Contract.Assert((m_stateFlags & (TASK_STATE_CANCELED | TASK_STATE_COMPLETION_RESERVED)) != 0, "Task.CancellationCleanupLogic(): Task not canceled or reserved.");
+            Debug.Assert((m_stateFlags & (TASK_STATE_CANCELED | TASK_STATE_COMPLETION_RESERVED)) != 0, "Task.CancellationCleanupLogic(): Task not canceled or reserved.");
             // I'd like to do this, but there is a small window for a race condition.  If someone calls Wait() between InternalCancel() and
             // here, that will set m_completionEvent, leading to a meaningless/harmless assertion.
-            //Contract.Assert((m_completionEvent == null) || !m_completionEvent.IsSet, "Task.CancellationCleanupLogic(): Completion event already set.");
+            //Debug.Assert((m_completionEvent == null) || !m_completionEvent.IsSet, "Task.CancellationCleanupLogic(): Completion event already set.");
 
             // This may have been set already, but we need to make sure.
             Interlocked.Exchange(ref m_stateFlags, m_stateFlags | TASK_STATE_CANCELED);
 
             // Fire completion event if it has been lazily initialized
-            var cp = m_contingentProperties;
+            var cp = Volatile.Read(ref m_contingentProperties);
             if (cp != null)
             {
                 cp.SetCompleted();
@@ -3562,8 +3529,8 @@ namespace System.Threading.Tasks
         /// </summary>    
         private void SetCancellationAcknowledged()
         {
-            Contract.Assert(this == Task.InternalCurrent, "SetCancellationAcknowledged() should only be called while this is still the current task");
-            Contract.Assert(IsCancellationRequested, "SetCancellationAcknowledged() should not be called if the task's CT wasn't signaled");
+            Debug.Assert(this == Task.InternalCurrent, "SetCancellationAcknowledged() should only be called while this is still the current task");
+            Debug.Assert(IsCancellationRequested, "SetCancellationAcknowledged() should not be called if the task's CT wasn't signaled");
 
             m_stateFlags |= TASK_STATE_CANCELLATIONACKNOWLEDGED;
         }
@@ -3579,7 +3546,6 @@ namespace System.Threading.Tasks
         /// <summary>
         /// Runs all of the continuations, as appropriate.
         /// </summary>
-        [SecuritySafeCritical] // for AwaitTaskContinuation.RunOrScheduleAction
         internal void FinishContinuations()
         {
             // Atomically store the fact that this task is completing.  From this point on, the adding of continuations will
@@ -3705,7 +3671,7 @@ namespace System.Threading.Tasks
                         // Otherwise, it must be an ITaskCompletionAction, so invoke it.
                         else
                         {
-                            Contract.Assert(currentContinuation is ITaskCompletionAction, "Expected continuation element to be Action, TaskContinuation, or ITaskContinuationAction");
+                            Debug.Assert(currentContinuation is ITaskCompletionAction, "Expected continuation element to be Action, TaskContinuation, or ITaskContinuationAction");
                             var action = (ITaskCompletionAction)currentContinuation;
 
                             if (bCanInlineContinuations || !action.InvokeMayRunArbitraryCode)
@@ -3900,13 +3866,13 @@ namespace System.Threading.Tasks
             // Throw on continuation with null action
             if (continuationAction == null)
             {
-                throw new ArgumentNullException("continuationAction");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.continuationAction);
             }
 
             // Throw on continuation with null TaskScheduler
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -4102,13 +4068,13 @@ namespace System.Threading.Tasks
             // Throw on continuation with null action
             if (continuationAction == null)
             {
-                throw new ArgumentNullException("continuationAction");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.continuationAction);
             }
 
             // Throw on continuation with null TaskScheduler
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -4317,13 +4283,13 @@ namespace System.Threading.Tasks
             // Throw on continuation with null function
             if (continuationFunction == null)
             {
-                throw new ArgumentNullException("continuationFunction");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.continuationFunction);
             }
 
             // Throw on continuation with null task scheduler
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -4536,13 +4502,13 @@ namespace System.Threading.Tasks
             // Throw on continuation with null function
             if (continuationFunction == null)
             {
-                throw new ArgumentNullException("continuationFunction");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.continuationFunction);
             }
 
             // Throw on continuation with null task scheduler
             if (scheduler == null)
             {
-                throw new ArgumentNullException("scheduler");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.scheduler);
             }
             Contract.EndContractBlock();
 
@@ -4594,7 +4560,7 @@ namespace System.Threading.Tasks
             TaskContinuationOptions illegalMask = TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.LongRunning;
             if ((continuationOptions & illegalMask) == illegalMask)
             {
-                throw new ArgumentOutOfRangeException("continuationOptions", Environment.GetResourceString("Task_ContinueWith_ESandLR"));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.continuationOptions, ExceptionResource.Task_ContinueWith_ESandLR);
             }
 
             // Check that no illegal options were specified
@@ -4602,13 +4568,13 @@ namespace System.Threading.Tasks
                 ~(creationOptionsMask | NotOnAnything | 
                     TaskContinuationOptions.LazyCancellation | TaskContinuationOptions.ExecuteSynchronously)) != 0)
             {
-                throw new ArgumentOutOfRangeException("continuationOptions");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.continuationOptions);
             }
 
             // Check that we didn't specify "not on anything"
             if ((continuationOptions & NotOnAnything) == NotOnAnything)
             {
-                throw new ArgumentOutOfRangeException("continuationOptions", Environment.GetResourceString("Task_ContinueWith_NotOnAnything"));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.continuationOptions, ExceptionResource.Task_ContinueWith_NotOnAnything);
             }
 
             // This passes over all but LazyCancellation, which has no representation in TaskCreationOptions
@@ -4751,7 +4717,7 @@ namespace System.Threading.Tasks
             // m_continuationObject is guaranteed at this point to be either a List or
             // s_taskCompletionSentinel.
             List<object> list = m_continuationObject as List<object>;
-            Contract.Assert((list != null) || (m_continuationObject == s_taskCompletionSentinel),
+            Debug.Assert((list != null) || (m_continuationObject == s_taskCompletionSentinel),
                 "Expected m_continuationObject to be list or sentinel");
 
             // If list is null, it can only mean that s_taskCompletionSentinel has been exchanged
@@ -4894,7 +4860,7 @@ namespace System.Threading.Tasks
             WaitAll(tasks, Timeout.Infinite);
 
 #if DEBUG
-            Contract.Assert(waitResult, "expected wait to succeed");
+            Debug.Assert(waitResult, "expected wait to succeed");
 #endif
         }
 
@@ -4933,7 +4899,7 @@ namespace System.Threading.Tasks
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
             if (totalMilliseconds < -1 || totalMilliseconds > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException("timeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.timeout);
             }
 
             return WaitAll(tasks, (int)totalMilliseconds);
@@ -5043,11 +5009,11 @@ namespace System.Threading.Tasks
         {
             if (tasks == null)
             {
-                throw new ArgumentNullException("tasks");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             }
             if (millisecondsTimeout < -1)
             {
-                throw new ArgumentOutOfRangeException("millisecondsTimeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.millisecondsTimeout);
             }
             Contract.EndContractBlock();
 
@@ -5075,7 +5041,7 @@ namespace System.Threading.Tasks
 
                 if (task == null)
                 {
-                    throw new ArgumentException(Environment.GetResourceString("Task_WaitMulti_NullTask"), "tasks");
+                    ThrowHelper.ThrowArgumentException(ExceptionResource.Task_WaitMulti_NullTask, ExceptionArgument.tasks);
                 }
 
                 bool taskIsCompleted = task.IsCompleted;
@@ -5155,8 +5121,8 @@ namespace System.Threading.Tasks
 
                 // Now gather up and throw all of the exceptions.
                 foreach (var task in tasks) AddExceptionsForCompletedTask(ref exceptions, task);
-                Contract.Assert(exceptions != null, "Should have seen at least one exception");
-                throw new AggregateException(exceptions);
+                Debug.Assert(exceptions != null, "Should have seen at least one exception");
+                ThrowHelper.ThrowAggregateException(exceptions);
             }
 
             return returnValue;
@@ -5180,8 +5146,8 @@ namespace System.Threading.Tasks
         /// <returns>true if all of the tasks completed; otherwise, false.</returns>
         private static bool WaitAllBlockingCore(List<Task> tasks, int millisecondsTimeout, CancellationToken cancellationToken)
         {
-            Contract.Assert(tasks != null, "Expected a non-null list of tasks");
-            Contract.Assert(tasks.Count > 0, "Expected at least one task");
+            Debug.Assert(tasks != null, "Expected a non-null list of tasks");
+            Debug.Assert(tasks.Count > 0, "Expected at least one task");
 
             bool waitCompleted = false;
             var mres = new SetOnCountdownMres(tasks.Count);
@@ -5227,14 +5193,14 @@ namespace System.Threading.Tasks
 
             internal SetOnCountdownMres(int count)
             {
-                Contract.Assert(count > 0, "Expected count > 0");
+                Debug.Assert(count > 0, "Expected count > 0");
                 _count = count;
             }
 
             public void Invoke(Task completingTask)
             {
                 if (Interlocked.Decrement(ref _count) == 0) Set();
-                Contract.Assert(_count >= 0, "Count should never go below 0");
+                Debug.Assert(_count >= 0, "Count should never go below 0");
             }
 
             public bool InvokeMayRunArbitraryCode { get { return false; } }
@@ -5279,7 +5245,7 @@ namespace System.Threading.Tasks
             // If one or more threw exceptions, aggregate them.
             if (exceptions != null)
             {
-                throw new AggregateException(exceptions);
+                ThrowHelper.ThrowAggregateException(exceptions);
             }
         }
 
@@ -5325,7 +5291,7 @@ namespace System.Threading.Tasks
         public static int WaitAny(params Task[] tasks)
         {
             int waitResult = WaitAny(tasks, Timeout.Infinite);
-            Contract.Assert(tasks.Length == 0 || waitResult != -1, "expected wait to succeed");
+            Debug.Assert(tasks.Length == 0 || waitResult != -1, "expected wait to succeed");
             return waitResult;
         }
 
@@ -5360,7 +5326,7 @@ namespace System.Threading.Tasks
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
             if (totalMilliseconds < -1 || totalMilliseconds > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException("timeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.timeout);
             }
 
             return WaitAny(tasks, (int)totalMilliseconds);
@@ -5458,11 +5424,11 @@ namespace System.Threading.Tasks
         {
             if (tasks == null)
             {
-                throw new ArgumentNullException("tasks");
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             }
             if (millisecondsTimeout < -1)
             {
-                throw new ArgumentOutOfRangeException("millisecondsTimeout");
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.millisecondsTimeout);
             }
             Contract.EndContractBlock();
 
@@ -5479,7 +5445,7 @@ namespace System.Threading.Tasks
 
                 if (task == null)
                 {
-                    throw new ArgumentException(Environment.GetResourceString("Task_WaitMulti_NullTask"), "tasks");
+                    ThrowHelper.ThrowArgumentException(ExceptionResource.Task_WaitMulti_NullTask, ExceptionArgument.tasks);
                 }
 
                 if (signaledTaskIndex == -1 && task.IsCompleted)
@@ -5496,9 +5462,9 @@ namespace System.Threading.Tasks
                 bool waitCompleted = firstCompleted.Wait(millisecondsTimeout, cancellationToken);
                 if (waitCompleted)
                 {
-                    Contract.Assert(firstCompleted.Status == TaskStatus.RanToCompletion);
+                    Debug.Assert(firstCompleted.Status == TaskStatus.RanToCompletion);
                     signaledTaskIndex = Array.IndexOf(tasks, firstCompleted.Result);
-                    Contract.Assert(signaledTaskIndex >= 0);
+                    Debug.Assert(signaledTaskIndex >= 0);
                 }
             }
 
@@ -5511,7 +5477,7 @@ namespace System.Threading.Tasks
             return signaledTaskIndex;
         }
 
-        #region FromResult / FromException / FromCancellation
+        #region FromResult / FromException / FromCanceled
 
         /// <summary>Creates a <see cref="Task{TResult}"/> that's completed successfully with the specified result.</summary>
         /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
@@ -5537,24 +5503,13 @@ namespace System.Threading.Tasks
         /// <returns>The faulted task.</returns>
         public static Task<TResult> FromException<TResult>(Exception exception)
         {
-            if (exception == null) throw new ArgumentNullException("exception");
+            if (exception == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.exception);
             Contract.EndContractBlock();
 
             var task = new Task<TResult>();
             bool succeeded = task.TrySetException(exception);
-            Contract.Assert(succeeded, "This should always succeed on a new task.");
+            Debug.Assert(succeeded, "This should always succeed on a new task.");
             return task;
-        }
-
-        /// <summary>Creates a <see cref="Task"/> that's completed due to cancellation with the specified token.</summary>
-        /// <param name="cancellationToken">The token with which to complete the task.</param>
-        /// <returns>The canceled task.</returns>
-        [FriendAccessAllowed]
-        internal static Task FromCancellation(CancellationToken cancellationToken)
-        {
-            if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
-            Contract.EndContractBlock();
-            return new Task(true, TaskCreationOptions.None, cancellationToken);
         }
 
         /// <summary>Creates a <see cref="Task"/> that's completed due to cancellation with the specified token.</summary>
@@ -5562,19 +5517,10 @@ namespace System.Threading.Tasks
         /// <returns>The canceled task.</returns>
         public static Task FromCanceled(CancellationToken cancellationToken)
         {
-            return FromCancellation(cancellationToken);
-        }
-
-        /// <summary>Creates a <see cref="Task{TResult}"/> that's completed due to cancellation with the specified token.</summary>
-        /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
-        /// <param name="cancellationToken">The token with which to complete the task.</param>
-        /// <returns>The canceled task.</returns>
-        [FriendAccessAllowed]
-        internal static Task<TResult> FromCancellation<TResult>(CancellationToken cancellationToken)
-        {
-            if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
+            if (!cancellationToken.IsCancellationRequested)
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.cancellationToken);
             Contract.EndContractBlock();
-            return new Task<TResult>(true, default(TResult), TaskCreationOptions.None, cancellationToken);
+            return new Task(true, TaskCreationOptions.None, cancellationToken);
         }
 
         /// <summary>Creates a <see cref="Task{TResult}"/> that's completed due to cancellation with the specified token.</summary>
@@ -5583,7 +5529,10 @@ namespace System.Threading.Tasks
         /// <returns>The canceled task.</returns>
         public static Task<TResult> FromCanceled<TResult>(CancellationToken cancellationToken)
         {
-            return FromCancellation<TResult>(cancellationToken);
+            if (!cancellationToken.IsCancellationRequested)
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.cancellationToken);
+            Contract.EndContractBlock();
+            return new Task<TResult>(true, default(TResult), TaskCreationOptions.None, cancellationToken);
         }
 
         /// <summary>Creates a <see cref="Task{TResult}"/> that's completed due to cancellation with the specified exception.</summary>
@@ -5592,14 +5541,34 @@ namespace System.Threading.Tasks
         /// <returns>The canceled task.</returns>
         internal static Task<TResult> FromCancellation<TResult>(OperationCanceledException exception)
         {
-            if (exception == null) throw new ArgumentNullException("exception");
+            if (exception == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.exception);
             Contract.EndContractBlock();
 
             var task = new Task<TResult>();
             bool succeeded = task.TrySetCanceled(exception.CancellationToken, exception);
-            Contract.Assert(succeeded, "This should always succeed on a new task.");
+            Debug.Assert(succeeded, "This should always succeed on a new task.");
             return task;
         }
+        
+        /// <summary>Creates a <see cref="Task"/> that's completed due to cancellation with the specified token.</summary>
+        /// <param name="cancellationToken">The token with which to complete the task.</param>
+        /// <returns>The canceled task.</returns>
+        [FriendAccessAllowed]
+        internal static Task FromCancellation(CancellationToken cancellationToken)
+        {
+            return FromCanceled(cancellationToken);
+        }
+        
+        /// <summary>Creates a <see cref="Task{TResult}"/> that's completed due to cancellation with the specified token.</summary>
+        /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
+        /// <param name="cancellationToken">The token with which to complete the task.</param>
+        /// <returns>The canceled task.</returns>
+        [FriendAccessAllowed]
+        internal static Task<TResult> FromCancellation<TResult>(CancellationToken cancellationToken)
+        {
+            return FromCanceled<TResult>(cancellationToken);
+        }
+        
         #endregion
 
         #region Run methods
@@ -5708,7 +5677,7 @@ namespace System.Threading.Tasks
         public static Task Run(Func<Task> function, CancellationToken cancellationToken)
         {
             // Check arguments
-            if (function == null) throw new ArgumentNullException("function");
+            if (function == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.function);
             Contract.EndContractBlock();
 
             if (AppContextSwitches.ThrowExceptionIfDisposedCancellationTokenSource)
@@ -5718,7 +5687,7 @@ namespace System.Threading.Tasks
 
             // Short-circuit if we are given a pre-canceled token
             if (cancellationToken.IsCancellationRequested)
-                return Task.FromCancellation(cancellationToken);
+                return Task.FromCanceled(cancellationToken);
 
             // Kick off initial Task, which will call the user-supplied function and yield a Task.
             Task<Task> task1 = Task<Task>.Factory.StartNew(function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
@@ -5759,7 +5728,7 @@ namespace System.Threading.Tasks
         public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
         {
             // Check arguments
-            if (function == null) throw new ArgumentNullException("function");
+            if (function == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.function);
             Contract.EndContractBlock();
 
             if (AppContextSwitches.ThrowExceptionIfDisposedCancellationTokenSource)
@@ -5769,7 +5738,7 @@ namespace System.Threading.Tasks
 
             // Short-circuit if we are given a pre-canceled token
             if (cancellationToken.IsCancellationRequested)
-                return Task.FromCancellation<TResult>(cancellationToken);
+                return Task.FromCanceled<TResult>(cancellationToken);
 
             // Kick off initial Task, which will call the user-supplied function and yield a Task.
             Task<Task<TResult>> task1 = Task<Task<TResult>>.Factory.StartNew(function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
@@ -5824,7 +5793,7 @@ namespace System.Threading.Tasks
             long totalMilliseconds = (long)delay.TotalMilliseconds;
             if (totalMilliseconds < -1 || totalMilliseconds > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException("delay", Environment.GetResourceString("Task_Delay_InvalidDelay"));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.delay, ExceptionResource.Task_Delay_InvalidDelay);
             }
 
             return Delay((int)totalMilliseconds, cancellationToken);
@@ -5868,7 +5837,7 @@ namespace System.Threading.Tasks
             // Throw on non-sensical time
             if (millisecondsDelay < -1)
             {
-                throw new ArgumentOutOfRangeException("millisecondsDelay", Environment.GetResourceString("Task_Delay_InvalidMillisecondsDelay"));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.millisecondsDelay, ExceptionResource.Task_Delay_InvalidMillisecondsDelay);
             }
             Contract.EndContractBlock();
 
@@ -5876,7 +5845,7 @@ namespace System.Threading.Tasks
             if (cancellationToken.IsCancellationRequested)
             {
                 // return a Task created as already-Canceled
-                return Task.FromCancellation(cancellationToken);
+                return Task.FromCanceled(cancellationToken);
             }
             else if (millisecondsDelay == 0)
             {
@@ -6000,18 +5969,18 @@ namespace System.Threading.Tasks
                 taskArray = new Task[taskCollection.Count];
                 foreach (var task in tasks)
                 {
-                    if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                    if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                     taskArray[index++] = task;
                 }
                 return InternalWhenAll(taskArray);
             }
 
             // Do some argument checking and convert tasks to a List (and later an array).
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             List<Task> taskList = new List<Task>();
             foreach (Task task in tasks)
             {
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 taskList.Add(task);
             }
 
@@ -6049,7 +6018,7 @@ namespace System.Threading.Tasks
         public static Task WhenAll(params Task[] tasks)
         {
             // Do some argument checking and make a defensive copy of the tasks array
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             Contract.EndContractBlock();
 
             int taskCount = tasks.Length;
@@ -6059,7 +6028,7 @@ namespace System.Threading.Tasks
             for (int i = 0; i < taskCount; i++)
             {
                 Task task = tasks[i];
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 tasksCopy[i] = task;
             }
 
@@ -6142,7 +6111,7 @@ namespace System.Threading.Tasks
                     for (int i = 0; i < m_tasks.Length; i++)
                     {
                         var task = m_tasks[i];
-                        Contract.Assert(task != null, "Constituent task in WhenAll should never be null");
+                        Debug.Assert(task != null, "Constituent task in WhenAll should never be null");
 
                         if (task.IsFaulted)
                         {
@@ -6162,7 +6131,7 @@ namespace System.Threading.Tasks
 
                     if (observedExceptions != null)
                     {
-                        Contract.Assert(observedExceptions.Count > 0, "Expected at least one exception");
+                        Debug.Assert(observedExceptions.Count > 0, "Expected at least one exception");
 
                         //We don't need to TraceOperationCompleted here because TrySetException will call Finish and we'll log it there
 
@@ -6184,7 +6153,7 @@ namespace System.Threading.Tasks
                         TrySetResult(default(VoidTaskResult));
                     }
                 }
-                Contract.Assert(m_count >= 0, "Count should never go below 0");
+                Debug.Assert(m_count >= 0, "Count should never go below 0");
             }
 
             public bool InvokeMayRunArbitraryCode { get { return true; } }
@@ -6251,18 +6220,18 @@ namespace System.Threading.Tasks
                 taskArray = new Task<TResult>[taskCollection.Count];
                 foreach (var task in tasks)
                 {
-                    if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                    if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                     taskArray[index++] = task;
                 }
                 return InternalWhenAll<TResult>(taskArray);
             }
 
             // Do some argument checking and convert tasks into a List (later an array)
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             List<Task<TResult>> taskList = new List<Task<TResult>>();
             foreach (Task<TResult> task in tasks)
             {
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 taskList.Add(task);
             }
 
@@ -6303,7 +6272,7 @@ namespace System.Threading.Tasks
         public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks)
         {
             // Do some argument checking and make a defensive copy of the tasks array
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             Contract.EndContractBlock();
 
             int taskCount = tasks.Length;
@@ -6313,7 +6282,7 @@ namespace System.Threading.Tasks
             for (int i = 0; i < taskCount; i++)
             {
                 Task<TResult> task = tasks[i];
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 tasksCopy[i] = task;
             }
 
@@ -6389,7 +6358,7 @@ namespace System.Threading.Tasks
                     for (int i = 0; i < m_tasks.Length; i++)
                     {
                         Task<T> task = m_tasks[i];
-                        Contract.Assert(task != null, "Constituent task in WhenAll should never be null");
+                        Debug.Assert(task != null, "Constituent task in WhenAll should never be null");
 
                         if (task.IsFaulted)
                         {
@@ -6402,7 +6371,7 @@ namespace System.Threading.Tasks
                         }
                         else
                         {
-                            Contract.Assert(task.Status == TaskStatus.RanToCompletion);
+                            Debug.Assert(task.Status == TaskStatus.RanToCompletion);
                             results[i] = task.GetResultCore(waitCompletionNotification: false); // avoid Result, which would triggering debug notification
                         }
 
@@ -6414,7 +6383,7 @@ namespace System.Threading.Tasks
 
                     if (observedExceptions != null)
                     {
-                        Contract.Assert(observedExceptions.Count > 0, "Expected at least one exception");
+                        Debug.Assert(observedExceptions.Count > 0, "Expected at least one exception");
 
                         //We don't need to TraceOperationCompleted here because TrySetException will call Finish and we'll log it there
 
@@ -6436,7 +6405,7 @@ namespace System.Threading.Tasks
                         TrySetResult(results);
                     }
                 }
-                Contract.Assert(m_count >= 0, "Count should never go below 0");
+                Debug.Assert(m_count >= 0, "Count should never go below 0");
             }
 
             public bool InvokeMayRunArbitraryCode { get { return true; } }
@@ -6475,10 +6444,10 @@ namespace System.Threading.Tasks
         /// </exception>
         public static Task<Task> WhenAny(params Task[] tasks)
         {
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             if (tasks.Length == 0)
             {
-                throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_EmptyTaskList"), "tasks");
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_EmptyTaskList, ExceptionArgument.tasks);
             }
             Contract.EndContractBlock();
 
@@ -6489,7 +6458,7 @@ namespace System.Threading.Tasks
             for (int i = 0; i < taskCount; i++)
             {
                 Task task = tasks[i];
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 tasksCopy[i] = task;
             }
 
@@ -6514,7 +6483,7 @@ namespace System.Threading.Tasks
         /// </exception>
         public static Task<Task> WhenAny(IEnumerable<Task> tasks)
         {
-            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.tasks);
             Contract.EndContractBlock();
 
             // Make a defensive copy, as the user may manipulate the tasks collection
@@ -6522,13 +6491,13 @@ namespace System.Threading.Tasks
             List<Task> taskList = new List<Task>();
             foreach (Task task in tasks)
             {
-                if (task == null) throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_NullTask"), "tasks");
+                if (task == null) ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_NullTask, ExceptionArgument.tasks);
                 taskList.Add(task);
             }
 
             if (taskList.Count == 0)
             {
-                throw new ArgumentException(Environment.GetResourceString("Task_MultiTaskContinuation_EmptyTaskList"), "tasks");
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Task_MultiTaskContinuation_EmptyTaskList, ExceptionArgument.tasks);
             }
 
             // Previously implemented CommonCWAnyLogic() can handle the rest
@@ -6630,7 +6599,7 @@ namespace System.Threading.Tasks
                 Task continuationTask = continuationObject as Task;
                 if (continuationTask != null)
                 {
-                    Contract.Assert(continuationTask.m_action == null);
+                    Debug.Assert(continuationTask.m_action == null);
                     Delegate[] delegates = continuationTask.GetDelegateContinuationsForDebugger();
                     if (delegates != null)
                         return delegates;
@@ -6695,13 +6664,11 @@ namespace System.Threading.Tasks
             m_completingTask = completingTask;
         }
 
-        [SecurityCritical]
         void IThreadPoolWorkItem.ExecuteWorkItem()
         {
             m_action.Invoke(m_completingTask);
         }
 
-        [SecurityCritical]
         void IThreadPoolWorkItem.MarkAborted(ThreadAbortException tae)
         {
             /* NOP */
@@ -7017,25 +6984,12 @@ namespace System.Threading.Tasks
         // that can SO in 20 inlines on a typical 1MB stack size probably needs to be revisited anyway.
         private const int MAX_UNCHECKED_INLINING_DEPTH = 20;
 
-#if !FEATURE_CORECLR
-
-        private UInt64 m_lastKnownWatermark;
-        private static int s_pageSize;
-
-        // We are conservative here. We assume that the platform needs a whole 64KB to
-        // respond to stack overflow. This means that for very small stacks (e.g. 128KB) 
-        // we'll fail a lot of stack checks incorrectly.
-        private const long STACK_RESERVED_SPACE = 4096 * 16;
-
-#endif  // !FEATURE_CORECLR
-
         /// <summary>
         /// This method needs to be called before attempting inline execution on the current thread. 
         /// If false is returned, it means we are too close to the end of the stack and should give up inlining.
         /// Each call to TryBeginInliningScope() that returns true must be matched with a 
         /// call to EndInliningScope() regardless of whether inlining actually took place.
         /// </summary>
-        [SecuritySafeCritical]
         internal bool TryBeginInliningScope()
         {
             // If we're still under the 'safe' limit we'll just skip the stack probe to save p/invoke calls
@@ -7055,59 +7009,15 @@ namespace System.Threading.Tasks
         internal void EndInliningScope()
         {
             m_inliningDepth--;
-            Contract.Assert(m_inliningDepth >= 0, "Inlining depth count should never go negative.");
+            Debug.Assert(m_inliningDepth >= 0, "Inlining depth count should never go negative.");
 
             // do the right thing just in case...
             if (m_inliningDepth < 0) m_inliningDepth = 0;
         }
 
-        [SecurityCritical]
         private unsafe bool CheckForSufficientStack()
         {
-#if FEATURE_CORECLR
             return RuntimeHelpers.TryEnsureSufficientExecutionStack();
-#else
-            // see if we already have the system page size info recorded
-            int pageSize = s_pageSize;
-            if (pageSize == 0)
-            {
-                // If not we need to query it from GetSystemInfo()
-                // Note that this happens only once for the process lifetime
-                Win32Native.SYSTEM_INFO sysInfo = new Win32Native.SYSTEM_INFO();
-                Win32Native.GetSystemInfo(ref sysInfo);
-
-                s_pageSize = pageSize = sysInfo.dwPageSize;
-            }
-
-            Win32Native.MEMORY_BASIC_INFORMATION stackInfo = new Win32Native.MEMORY_BASIC_INFORMATION();
-
-            // We subtract one page for our request. VirtualQuery rounds UP to the next page.
-            // Unfortunately, the stack grows down. If we're on the first page (last page in the
-            // VirtualAlloc), we'll be moved to the next page, which is off the stack! 
-
-            UIntPtr currentAddr = new UIntPtr(&stackInfo - pageSize);
-            UInt64 current64 = currentAddr.ToUInt64();
-
-            // Check whether we previously recorded a deeper stack than where we currently are,
-            // If so we don't need to do the P/Invoke to VirtualQuery
-            if (m_lastKnownWatermark != 0 && current64 > m_lastKnownWatermark)
-                return true;
-
-            // Actual stack probe. P/Invoke to query for the current stack allocation information.            
-            Win32Native.VirtualQuery(currentAddr.ToPointer(), ref stackInfo, (UIntPtr)(sizeof(Win32Native.MEMORY_BASIC_INFORMATION)));
-
-            // If the current address minus the base (remember: the stack grows downward in the
-            // address space) is greater than the number of bytes requested plus the reserved
-            // space at the end, the request has succeeded.
-
-            if ((current64 - ((UIntPtr)stackInfo.AllocationBase).ToUInt64()) > STACK_RESERVED_SPACE)
-            {
-                m_lastKnownWatermark = current64;
-                return true;
-            }
-
-            return false;
-#endif
         }
     }
 
@@ -7222,16 +7132,15 @@ namespace System.Threading.Tasks
                 case STATE_WAITING_ON_INNER_TASK:
                     bool result = TrySetFromTask(completingTask, lookForOce: false);
                     _state = STATE_DONE; // bump the state
-                    Contract.Assert(result, "Expected TrySetFromTask from inner task to succeed");
+                    Debug.Assert(result, "Expected TrySetFromTask from inner task to succeed");
                     break;
                 default:
-                    Contract.Assert(false, "UnwrapPromise in illegal state");
+                    Debug.Assert(false, "UnwrapPromise in illegal state");
                     break;
             }
         }
 
         // Calls InvokeCore asynchronously.
-        [SecuritySafeCritical]
         private void InvokeCoreAsync(Task completingTask)
         {
             // Queue a call to Invoke.  If we're so deep on the stack that we're at risk of overflowing,
@@ -7251,7 +7160,7 @@ namespace System.Threading.Tasks
         private void ProcessCompletedOuterTask(Task task)
         {
             Contract.Requires(task != null && task.IsCompleted, "Expected non-null, completed outer task");
-            Contract.Assert(_state == STATE_WAITING_ON_OUTER_TASK, "We're in the wrong state!");
+            Debug.Assert(_state == STATE_WAITING_ON_OUTER_TASK, "We're in the wrong state!");
 
             // Bump our state before proceeding any further
             _state = STATE_WAITING_ON_INNER_TASK;
@@ -7263,7 +7172,7 @@ namespace System.Threading.Tasks
                 case TaskStatus.Canceled:
                 case TaskStatus.Faulted:
                     bool result = TrySetFromTask(task, _lookForOce);
-                    Contract.Assert(result, "Expected TrySetFromTask from outer task to succeed");
+                    Debug.Assert(result, "Expected TrySetFromTask from outer task to succeed");
                     break;
 
                 // Otherwise, process the inner task it returned.

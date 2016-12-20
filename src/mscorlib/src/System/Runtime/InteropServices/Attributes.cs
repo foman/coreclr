@@ -8,6 +8,7 @@ namespace System.Runtime.InteropServices{
 
     using System;
     using System.Reflection;
+    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     [AttributeUsage(AttributeTargets.Delegate, AllowMultiple = false, Inherited = false)]
@@ -516,37 +517,35 @@ namespace System.Runtime.InteropServices{
         
         [System.Runtime.InteropServices.ComVisible(false)]
         HString          = 0x2f,        // Windows Runtime HSTRING
+
+        [System.Runtime.InteropServices.ComVisible(false)]
+        LPUTF8Str        = 0x30,        // UTF8 string
     }
 
     [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Field | AttributeTargets.ReturnValue, Inherited = false)]
     [System.Runtime.InteropServices.ComVisible(true)]
     public unsafe sealed class MarshalAsAttribute : Attribute
     {
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(RuntimeParameterInfo parameter)
         {
             return GetCustomAttribute(parameter.MetadataToken, parameter.GetRuntimeModule());
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static bool IsDefined(RuntimeParameterInfo parameter)
         {
             return GetCustomAttribute(parameter) != null;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(RuntimeFieldInfo field)
         {
             return GetCustomAttribute(field.MetadataToken, field.GetRuntimeModule()); ;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static bool IsDefined(RuntimeFieldInfo field)
         {
             return GetCustomAttribute(field) != null;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(int token, RuntimeModule scope)
         {
             UnmanagedType unmanagedType, arraySubType;
@@ -575,7 +574,7 @@ namespace System.Runtime.InteropServices{
             {
                 // The user may have supplied a bad type name string causing this TypeLoadException
                 // Regardless, we return the bad type name
-                Contract.Assert(marshalTypeName != null);
+                Debug.Assert(marshalTypeName != null);
             }
 
             return new MarshalAsAttribute(
@@ -769,7 +768,6 @@ namespace System.Runtime.InteropServices{
     [System.Runtime.InteropServices.ComVisible(true)]
     public unsafe sealed class DllImportAttribute : Attribute
     {
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(RuntimeMethodInfo method)
         {
             if ((method.Attributes & MethodAttributes.PinvokeImpl) == 0)
@@ -866,7 +864,6 @@ namespace System.Runtime.InteropServices{
     {
         private const int DEFAULT_PACKING_SIZE = 8;
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(RuntimeType type)
         {
             if (!IsDefined(type))
@@ -937,7 +934,6 @@ namespace System.Runtime.InteropServices{
     [System.Runtime.InteropServices.ComVisible(true)]
     public unsafe sealed class FieldOffsetAttribute : Attribute
     {
-        [System.Security.SecurityCritical]  // auto-generated
         internal static Attribute GetCustomAttribute(RuntimeFieldInfo field)
         {
             int fieldOffset;
@@ -949,7 +945,6 @@ namespace System.Runtime.InteropServices{
             return null;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         internal static bool IsDefined(RuntimeFieldInfo field)
         {
             return GetCustomAttribute(field) != null;

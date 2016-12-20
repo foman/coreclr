@@ -12,7 +12,7 @@ namespace System {
     ///    <para> The exception that is thrown when accessing an object that was
     ///       disposed.</para>
     /// </devdoc>
-[System.Runtime.InteropServices.ComVisible(true)]
+    [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public class ObjectDisposedException : InvalidOperationException {
         private String objectName;
@@ -52,7 +52,7 @@ namespace System {
 
         public String ObjectName {
             get {
-                if ((objectName == null) && !CompatibilitySwitches.IsAppEarlierThanWindowsPhone8)
+                if (objectName == null)
                 {
                     return String.Empty;
                 }
@@ -64,7 +64,6 @@ namespace System {
             objectName = info.GetString("ObjectName");
         }
 
-        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             base.GetObjectData(info, context);
             info.AddValue("ObjectName",ObjectName,typeof(String));

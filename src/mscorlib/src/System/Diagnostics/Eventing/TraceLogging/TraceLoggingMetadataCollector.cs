@@ -103,7 +103,7 @@ namespace System.Diagnostics.Tracing
                 var newGroup = new FieldMetadata(
                     name,
                     TraceLoggingDataType.Struct,
-                    0,
+                    this.Tags,
                     this.BeginningBufferedArray);
                 this.AddField(newGroup);
                 result = new TraceLoggingMetadataCollector(this, newGroup);
@@ -156,7 +156,7 @@ namespace System.Diagnostics.Tracing
                     size = 16;
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException("type");
+                    throw new ArgumentOutOfRangeException(nameof(type));
             }
 
             this.impl.AddScalar(size);
@@ -183,7 +183,7 @@ namespace System.Diagnostics.Tracing
                 case TraceLoggingDataType.CountedUtf16String:
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException("type");
+                    throw new ArgumentOutOfRangeException(nameof(type));
             }
 
             this.impl.AddScalar(2);
@@ -227,7 +227,7 @@ namespace System.Diagnostics.Tracing
                 case TraceLoggingDataType.Char8:
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException("type");
+                    throw new ArgumentOutOfRangeException(nameof(type));
             }
 
             if (this.BeginningBufferedArray)

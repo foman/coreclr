@@ -2,22 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-/*============================================================
-**
-** 
-** 
-**
-**
-** Purpose: For reading text from streams in a particular 
-** encoding.
-**
-**
-===========================================================*/
-
-using System;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Contracts;
 using System.Security.Permissions;
@@ -52,13 +40,6 @@ namespace System.IO
         {
             get
             {
-#if FEATURE_LEGACYNETCF
-                // Quirk for Mango app compatibility
-                if (CompatibilitySwitches.IsAppEarlierThanWindowsPhone8)
-                {
-                    return 4096;
-                }
-#endif // FEATURE_LEGACYNETCF
                 return 1024;
             }
         }
@@ -168,36 +149,19 @@ namespace System.IO
         public StreamReader(Stream stream, Encoding encoding, bool detectEncodingFromByteOrderMarks, int bufferSize, bool leaveOpen)
         {
             if (stream == null || encoding == null)
-                throw new ArgumentNullException((stream == null ? "stream" : "encoding"));
+                throw new ArgumentNullException((stream == null ? nameof(stream) : nameof(encoding)));
             if (!stream.CanRead)
                 throw new ArgumentException(Environment.GetResourceString("Argument_StreamNotReadable"));
             if (bufferSize <= 0)
-                throw new ArgumentOutOfRangeException("bufferSize", Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
+                throw new ArgumentOutOfRangeException(nameof(bufferSize), Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             Contract.EndContractBlock();
 
             Init(stream, encoding, detectEncodingFromByteOrderMarks, bufferSize, leaveOpen);
         }
 
-#if FEATURE_LEGACYNETCF
-        [System.Security.SecuritySafeCritical]
-#endif // FEATURE_LEGACYNETCF
         public StreamReader(String path) 
             : this(path, true) {
-#if FEATURE_LEGACYNETCF
-            if(CompatibilitySwitches.IsAppEarlierThanWindowsPhone8) {
-                System.Reflection.Assembly callingAssembly = System.Reflection.Assembly.GetCallingAssembly();
-                if(callingAssembly != null && !callingAssembly.IsProfileAssembly) {
-                    string caller = new System.Diagnostics.StackFrame(1).GetMethod().FullName;
-                    string callee = System.Reflection.MethodBase.GetCurrentMethod().FullName;
-                    throw new MethodAccessException(String.Format(
-                        System.Globalization.CultureInfo.CurrentCulture,
-                        Environment.GetResourceString("Arg_MethodAccessException_WithCaller"),
-                        caller,
-                        callee));
-                }
-            }
-#endif // FEATURE_LEGACYNETCF
-                               }
+        }
 
         public StreamReader(String path, bool detectEncodingFromByteOrderMarks) 
             : this(path, Encoding.UTF8, detectEncodingFromByteOrderMarks, DefaultBufferSize) {
@@ -211,26 +175,20 @@ namespace System.IO
             : this(path, encoding, detectEncodingFromByteOrderMarks, DefaultBufferSize) {
         }
 
-        [System.Security.SecuritySafeCritical]
         public StreamReader(String path, Encoding encoding, bool detectEncodingFromByteOrderMarks, int bufferSize)
-            : this(path, encoding, detectEncodingFromByteOrderMarks, bufferSize, true) {
-        }
-
-        [System.Security.SecurityCritical]
-        internal StreamReader(String path, Encoding encoding, bool detectEncodingFromByteOrderMarks, int bufferSize, bool checkHost)
         {
             // Don't open a Stream before checking for invalid arguments,
             // or we'll create a FileStream on disk and we won't close it until
             // the finalizer runs, causing problems for applications.
             if (path==null || encoding==null)
-                throw new ArgumentNullException((path==null ? "path" : "encoding"));
+                throw new ArgumentNullException((path==null ? nameof(path) : nameof(encoding)));
             if (path.Length==0)
                 throw new ArgumentException(Environment.GetResourceString("Argument_EmptyPath"));
             if (bufferSize <= 0)
-                throw new ArgumentOutOfRangeException("bufferSize", Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
+                throw new ArgumentOutOfRangeException(nameof(bufferSize), Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             Contract.EndContractBlock();
 
-            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultFileStreamBufferSize, FileOptions.SequentialScan, Path.GetFileName(path), false, false, checkHost);
+            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultFileStreamBufferSize, FileOptions.SequentialScan, Path.GetFileName(path), false, false);
             Init(stream, encoding, detectEncodingFromByteOrderMarks, bufferSize, false);
         }
         
@@ -382,9 +340,9 @@ namespace System.IO
         public override int Read([In, Out] char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index < 0 ? "index" : "count"), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -440,9 +398,9 @@ namespace System.IO
         public override int ReadBlock([In, Out] char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index < 0 ? "index" : "count"), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -458,7 +416,7 @@ namespace System.IO
         // Trims n bytes from the front of the buffer.
         private void CompressBuffer(int n)
         {
-            Contract.Assert(byteLen >= n, "CompressBuffer was called with a number of bytes greater than the current buffer length.  Are two threads using this StreamReader at the same time?");
+            Debug.Assert(byteLen >= n, "CompressBuffer was called with a number of bytes greater than the current buffer length.  Are two threads using this StreamReader at the same time?");
             Buffer.InternalBlockCopy(byteBuffer, n, byteBuffer, 0, byteLen - n);
             byteLen -= n;
         }
@@ -484,13 +442,11 @@ namespace System.IO
                     CompressBuffer(2);
                     changedEncoding = true;
                 }
-#if FEATURE_UTF32   
                 else {
                     encoding = Encoding.UTF32;
                     CompressBuffer(4);
                 changedEncoding = true;
-            }
-#endif            
+                }
             }
          
             else if (byteLen >= 3 && byteBuffer[0]==0xEF && byteBuffer[1]==0xBB && byteBuffer[2]==0xBF) {
@@ -499,7 +455,6 @@ namespace System.IO
                 CompressBuffer(3);
                 changedEncoding = true;
             }
-#if FEATURE_UTF32            
             else if (byteLen >= 4 && byteBuffer[0] == 0 && byteBuffer[1] == 0 &&
                      byteBuffer[2] == 0xFE && byteBuffer[3] == 0xFF) {
                 // Big Endian UTF32
@@ -507,7 +462,6 @@ namespace System.IO
                 CompressBuffer(4);
                 changedEncoding = true;
             }
-#endif            
             else if (byteLen == 2)
                 _detectEncoding = true;
             // Note: in the future, if we change this algorithm significantly,
@@ -530,7 +484,7 @@ namespace System.IO
             if (!_checkPreamble) 
                 return _checkPreamble;
 
-            Contract.Assert(bytePos <= _preamble.Length, "_compressPreamble was called with the current bytePos greater than the preamble buffer length.  Are two threads using this StreamReader at the same time?");
+            Debug.Assert(bytePos <= _preamble.Length, "_compressPreamble was called with the current bytePos greater than the preamble buffer length.  Are two threads using this StreamReader at the same time?");
             int len = (byteLen >= (_preamble.Length))? (_preamble.Length - bytePos) : (byteLen  - bytePos);
 
             for(int i=0; i<len; i++, bytePos++) {
@@ -541,7 +495,7 @@ namespace System.IO
                 }
             }
 
-            Contract.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
+            Debug.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
 
             if (_checkPreamble) {
                 if (bytePos == _preamble.Length) {
@@ -596,9 +550,9 @@ namespace System.IO
                 byteLen = 0;
             do {
                 if (_checkPreamble) {
-                    Contract.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
                     int len = stream.Read(byteBuffer, bytePos, byteBuffer.Length - bytePos);
-                    Contract.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                    Debug.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
 
                     if (len == 0) {
                         // EOF but we might have buffered bytes from previous 
@@ -616,9 +570,9 @@ namespace System.IO
                     byteLen += len;
                 }
                 else {
-                    Contract.Assert(bytePos == 0, "bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(bytePos == 0, "bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
                     byteLen = stream.Read(byteBuffer, 0, byteBuffer.Length);
-                    Contract.Assert(byteLen >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                    Debug.Assert(byteLen >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
 
                     if (byteLen == 0)  // We're at EOF
                         return charLen;
@@ -678,12 +632,12 @@ namespace System.IO
             readToUserBuffer = desiredChars >= _maxCharsPerBuffer;
 
             do {
-                Contract.Assert(charsRead == 0);
+                Debug.Assert(charsRead == 0);
 
                 if (_checkPreamble) {
-                    Contract.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
                     int len = stream.Read(byteBuffer, bytePos, byteBuffer.Length - bytePos);
-                    Contract.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                    Debug.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
                     
                     if (len == 0) {
                         // EOF but we might have buffered bytes from previous 
@@ -705,11 +659,11 @@ namespace System.IO
                     byteLen += len;
                 }
                 else {
-                    Contract.Assert(bytePos == 0, "bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(bytePos == 0, "bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
 
                     byteLen = stream.Read(byteBuffer, 0, byteBuffer.Length);
 
-                    Contract.Assert(byteLen >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                    Debug.Assert(byteLen >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
                     
                     if (byteLen == 0)  // EOF
                         break;
@@ -803,7 +757,6 @@ namespace System.IO
         }
         
         #region Task based Async APIs
-        [HostProtection(ExternalThreading=true)]
         [ComVisible(false)]
         public override Task<String> ReadLineAsync()
         {
@@ -884,7 +837,6 @@ namespace System.IO
             return GetStringAndReleaseSharedStringBuilder(sb);
         }
 
-        [HostProtection(ExternalThreading=true)]
         [ComVisible(false)]
         public override Task<String> ReadToEndAsync()
         {
@@ -921,14 +873,13 @@ namespace System.IO
             return GetStringAndReleaseSharedStringBuilder(sb);
         }
 
-        [HostProtection(ExternalThreading=true)]
         [ComVisible(false)]
         public override Task<int> ReadAsync(char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index < 0 ? "index" : "count"), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -985,14 +936,14 @@ namespace System.IO
                     // We break out of the loop if the stream is blocked (EOF is reached).
                     do
                     {
-                        Contract.Assert(n == 0);
+                        Debug.Assert(n == 0);
 
                         if (CheckPreamble_Prop)
                         {
-                            Contract.Assert(BytePos_Prop <= Preamble_Prop.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
+                            Debug.Assert(BytePos_Prop <= Preamble_Prop.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
                             int tmpBytePos = BytePos_Prop;
                             int len = await tmpStream.ReadAsync(tmpByteBuffer, tmpBytePos, tmpByteBuffer.Length - tmpBytePos).ConfigureAwait(false);
-                            Contract.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                            Debug.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
 
                             if (len == 0)
                             {
@@ -1013,7 +964,7 @@ namespace System.IO
                                 }
                                         
                                 // How can part of the preamble yield any chars?
-                                Contract.Assert(n == 0);
+                                Debug.Assert(n == 0);
 
                                 IsBlocked_Prop = true;
                                 break;
@@ -1025,11 +976,11 @@ namespace System.IO
                         }
                         else
                         {
-                            Contract.Assert(BytePos_Prop == 0, "_bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
+                            Debug.Assert(BytePos_Prop == 0, "_bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
 
                             ByteLen_Prop = await tmpStream.ReadAsync(tmpByteBuffer, 0, tmpByteBuffer.Length).ConfigureAwait(false);
 
-                            Contract.Assert(ByteLen_Prop >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                            Debug.Assert(ByteLen_Prop >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
 
                             if (ByteLen_Prop == 0)  // EOF
                             {
@@ -1059,7 +1010,7 @@ namespace System.IO
                             readToUserBuffer = count >= MaxCharsPerBuffer_Prop;
                         }
 
-                        Contract.Assert(n == 0);
+                        Debug.Assert(n == 0);
 
                         CharPos_Prop = 0;
                         if (readToUserBuffer)
@@ -1067,7 +1018,7 @@ namespace System.IO
                             n += Decoder_Prop.GetChars(tmpByteBuffer, 0, ByteLen_Prop, buffer, index + charsRead);
                                         
                             // Why did the bytes yield no chars?
-                            Contract.Assert(n > 0);
+                            Debug.Assert(n > 0);
 
                             CharLen_Prop = 0;  // StreamReader's buffer is empty.
                         }
@@ -1076,7 +1027,7 @@ namespace System.IO
                             n = Decoder_Prop.GetChars(tmpByteBuffer, 0, ByteLen_Prop, CharBuffer_Prop, 0);
                                         
                             // Why did the bytes yield no chars?
-                            Contract.Assert(n > 0);
+                            Debug.Assert(n > 0);
 
                             CharLen_Prop += n;  // Number of chars in StreamReader's buffer.
                         }
@@ -1109,14 +1060,13 @@ namespace System.IO
             return charsRead;
         }
 
-        [HostProtection(ExternalThreading=true)]
         [ComVisible(false)]
         public override Task<int> ReadBlockAsync(char[] buffer, int index, int count)
         {
             if (buffer==null)
-                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
             if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index < 0 ? "index" : "count"), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - index < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();
@@ -1141,7 +1091,7 @@ namespace System.IO
 
         #region Private properties for async method performance
         // Access to instance fields of MarshalByRefObject-derived types requires special JIT helpers that check
-        // if the instance operated on is remote. This is optimised for fields on “this” but if a method is Async
+        // if the instance operated on is remote. This is optimised for fields on this but if a method is Async
         // and is thus lifted to a state machine type, access will be slow.
         // As a workaround, we either cache instance fields in locals or use properties to access such fields.
         
@@ -1213,10 +1163,10 @@ namespace System.IO
                 ByteLen_Prop = 0;
             do {
                 if (CheckPreamble_Prop) {
-                    Contract.Assert(BytePos_Prop <= Preamble_Prop.Length, "possible bug in _compressPreamble. Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(BytePos_Prop <= Preamble_Prop.Length, "possible bug in _compressPreamble. Are two threads using this StreamReader at the same time?");
                     int tmpBytePos = BytePos_Prop;
                     int len = await tmpStream.ReadAsync(tmpByteBuffer, tmpBytePos, tmpByteBuffer.Length - tmpBytePos).ConfigureAwait(false);
-                    Contract.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
+                    Debug.Assert(len >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
                     
                     if (len == 0) {
                         // EOF but we might have buffered bytes from previous 
@@ -1234,9 +1184,9 @@ namespace System.IO
                     ByteLen_Prop += len;
                 }
                 else {
-                    Contract.Assert(BytePos_Prop == 0, "_bytePos can be non zero only when we are trying to _checkPreamble. Are two threads using this StreamReader at the same time?");
+                    Debug.Assert(BytePos_Prop == 0, "_bytePos can be non zero only when we are trying to _checkPreamble. Are two threads using this StreamReader at the same time?");
                     ByteLen_Prop = await tmpStream.ReadAsync(tmpByteBuffer, 0, tmpByteBuffer.Length).ConfigureAwait(false);
-                    Contract.Assert(ByteLen_Prop >= 0, "Stream.Read returned a negative number!  Bug in stream class.");
+                    Debug.Assert(ByteLen_Prop >= 0, "Stream.Read returned a negative number!  Bug in stream class.");
                     
                     if (ByteLen_Prop == 0)  // We're at EOF
                         return CharLen_Prop;

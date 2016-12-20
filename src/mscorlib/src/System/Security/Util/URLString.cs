@@ -21,8 +21,10 @@ namespace System.Security.Util {
     using System.Text;
     using System.IO;
     using System.Diagnostics.Contracts;
-    
+
+#if FEATURE_SERIALIZATION
     [Serializable]
+#endif
     internal sealed class URLString : SiteString
     {
         private String m_protocol;
@@ -281,7 +283,7 @@ namespace System.Security.Util {
 
                         temp = url.Substring( index );
 #endif  // !PLATFORM_UNIX
-                     }                                
+                     }
                     else
                     {
                         throw new ArgumentException( Environment.GetResourceString( "Argument_InvalidUrl" ) );
@@ -355,7 +357,7 @@ namespace System.Security.Util {
                         temp = temp.Substring( Rindex, portIndex - Rindex ) + temp.Substring( tempIndex );
                     }
                     else 
-                        throw new ArgumentException( Environment.GetResourceString( "Argument_InvalidUrl" ) );                            
+                        throw new ArgumentException( Environment.GetResourceString( "Argument_InvalidUrl" ) );
                 }
                 else
                     throw new ArgumentException( Environment.GetResourceString( "Argument_InvalidUrl" ) );
@@ -366,7 +368,7 @@ namespace System.Security.Util {
             }
                 
             return temp;
-        }                
+        }
 
         // This does three things:
         // 1. It makes the following modifications to the start of the string:
@@ -377,13 +379,24 @@ namespace System.Security.Util {
         // 3. Throws a PathTooLongException if the length of the resulting URL is >= MAX_PATH.
         //    This is done to prevent security issues due to canonicalization truncations.
         // Remove this method when the Path class supports "\\?\"
-        internal static String PreProcessForExtendedPathRemoval(String url, bool isFileUrl)
+        internal static string PreProcessForExtendedPathRemoval(string url, bool isFileUrl)
         {
-            bool uncShare = false;
-            return PreProcessForExtendedPathRemoval(url, isFileUrl, ref uncShare);
+            return PreProcessForExtendedPathRemoval(checkPathLength: true, url: url, isFileUrl: isFileUrl);
         }
 
-        private static String PreProcessForExtendedPathRemoval(String url, bool isFileUrl, ref bool isUncShare)
+        internal static string PreProcessForExtendedPathRemoval(bool checkPathLength, string url, bool isFileUrl)
+        {
+            bool isUncShare = false;
+            return PreProcessForExtendedPathRemoval(checkPathLength: checkPathLength, url: url, isFileUrl: isFileUrl, isUncShare: ref isUncShare);
+        }
+
+        // Keeping this signature to avoid reflection breaks
+        private static string PreProcessForExtendedPathRemoval(string url, bool isFileUrl, ref bool isUncShare)
+        {
+            return PreProcessForExtendedPathRemoval(checkPathLength: true, url: url, isFileUrl: isFileUrl, isUncShare: ref isUncShare);
+        }
+
+        private static string PreProcessForExtendedPathRemoval(bool checkPathLength, string url, bool isFileUrl, ref bool isUncShare)
         {
             // This is the modified URL that we will return
             StringBuilder modifiedUrl = new StringBuilder(url);
@@ -457,15 +470,29 @@ namespace System.Security.Util {
             }
 
             // ITEM 3 - If the path is greater than or equal (due to terminating NULL in windows) MAX_PATH, we throw.
-            if (modifiedUrl.Length >= Path.MaxPath)
+            if (checkPathLength)
             {
-                throw new PathTooLongException(Environment.GetResourceString("IO.PathTooLong"));
+                // This needs to be a separate method to avoid hitting the static constructor on AppContextSwitches
+                CheckPathTooLong(modifiedUrl);
             }
 
             // Create the result string from the StringBuilder
             return modifiedUrl.ToString();
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void CheckPathTooLong(StringBuilder path)
+        {
+            if (path.Length >= (
+#if PLATFORM_UNIX
+                Interop.Sys.MaxPath))
+#else
+                PathInternal.MaxLongPath))
+#endif
+            {
+                throw new PathTooLongException(Environment.GetResourceString("IO.PathTooLong"));
+            }
+        }
 
         // Do any misc massaging of data in the URL
         private String PreProcessURL(String url, bool isFileURL)
@@ -487,7 +514,7 @@ namespace System.Security.Util {
             //      file:/home/johndoe/here
             //      file:../johndoe/here
             //      file:~/johndoe/here
-            String temp = url;            
+            String temp = url;
             int  nbSlashes = 0;
             while(nbSlashes<temp.Length && '/'==temp[nbSlashes])
                 nbSlashes++;  
@@ -507,7 +534,7 @@ namespace System.Security.Util {
         {
 
             String temp = url;
-#if !PLATFORM_UNIX            
+#if !PLATFORM_UNIX
             int index = temp.IndexOf( '/');
 
             if (index != -1 &&
@@ -625,7 +652,7 @@ namespace System.Security.Util {
             }
             else
             {
-#if !PLATFORM_UNIX 
+#if !PLATFORM_UNIX
                 String site = temp.Substring( 0, index );
                 m_localSite = null;
                 m_siteString = new SiteString( site );
@@ -654,7 +681,7 @@ namespace System.Security.Util {
         {
             if (url == null)
             {
-                throw new ArgumentNullException( "url" );
+                throw new ArgumentNullException( nameof(url) );
             }
             Contract.EndContractBlock();
             
@@ -1101,7 +1128,6 @@ namespace System.Security.Util {
         }
         
 #if !PLATFORM_UNIX
-        [System.Security.SecuritySafeCritical]  // auto-generated
         internal URLString SpecialNormalizeUrl()
         {
             // Under WinXP, file protocol urls can be mapped to
@@ -1151,7 +1177,6 @@ namespace System.Security.Util {
             }
         }
                 
-        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void GetDeviceName( String driveLetter, StringHandleOnStack retDeviceName );

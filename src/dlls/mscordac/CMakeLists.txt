@@ -30,19 +30,43 @@ if(WIN32)
     set(START_LIBRARY_GROUP)
     set(END_LIBRARY_GROUP)
 else(WIN32)
-    if(CLR_CMAKE_PLATFORM_LINUX OR CLR_CMAKE_PLATFORM_NETBSD)
-        # This option is necessary to ensure that the overloaded delete operator defined inside
-        # of the utilcode will be used instead of the standard library delete operator.
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Xlinker -Bsymbolic -Bsymbolic-functions")
-
-        # The following linked options can be inserted into the linker libraries list to 
-        # ensure proper resolving of circular references between a subset of the libraries.
-        set(START_LIBRARY_GROUP -Wl,--start-group)
-        set(END_LIBRARY_GROUP -Wl,--end-group)
-    endif(CLR_CMAKE_PLATFORM_LINUX OR CLR_CMAKE_PLATFORM_NETBSD)
+    set(DEF_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/mscordac_unixexports.src)
+    set(EXPORTS_FILE ${CMAKE_CURRENT_BINARY_DIR}/mscordac.exports)
+    generate_exports_file(${DEF_SOURCES} ${EXPORTS_FILE})
 endif(WIN32)
 
+if(CLR_CMAKE_PLATFORM_LINUX OR CLR_CMAKE_PLATFORM_FREEBSD OR CLR_CMAKE_PLATFORM_NETBSD)
+    # This option is necessary to ensure that the overloaded delete operator defined inside
+    # of the utilcode will be used instead of the standard library delete operator.
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Xlinker -Bsymbolic -Xlinker -Bsymbolic-functions")    
+
+    # The following linked options can be inserted into the linker libraries list to 
+    # ensure proper resolving of circular references between a subset of the libraries.
+    set(START_LIBRARY_GROUP -Wl,--start-group)
+    set(END_LIBRARY_GROUP -Wl,--end-group)
+
+    # These options are used to force every object to be included even if it's unused.
+    set(START_WHOLE_ARCHIVE -Wl,--whole-archive)
+    set(END_WHOLE_ARCHIVE -Wl,--no-whole-archive) 
+
+    # Add linker exports file option
+    set(EXPORTS_LINKER_OPTION -Wl,--version-script=${EXPORTS_FILE})
+endif(CLR_CMAKE_PLATFORM_LINUX OR CLR_CMAKE_PLATFORM_FREEBSD OR CLR_CMAKE_PLATFORM_NETBSD)
+
+if(CLR_CMAKE_PLATFORM_DARWIN)
+    # Add linker exports file option
+    set(EXPORTS_LINKER_OPTION -Wl,-exported_symbols_list,${EXPORTS_FILE})
+endif(CLR_CMAKE_PLATFORM_DARWIN)
+
 add_library_clr(mscordaccore SHARED ${CLR_DAC_SOURCES})
+
+if(CLR_CMAKE_PLATFORM_UNIX)
+    add_custom_target(mscordaccore_exports DEPENDS ${EXPORTS_FILE})
+    add_dependencies(mscordaccore mscordaccore_exports)
+
+    set_property(TARGET mscordaccore APPEND_STRING PROPERTY LINK_FLAGS ${EXPORTS_LINKER_OPTION})
+    set_property(TARGET mscordaccore APPEND_STRING PROPERTY LINK_DEPENDS ${EXPORTS_FILE})
+endif(CLR_CMAKE_PLATFORM_UNIX)
 
 # IMPORTANT! Please do not rearrange the order of the libraries. The linker on Linux is
 # order dependent and changing the order can result in undefined symbols in the shared 
@@ -61,6 +85,7 @@ set(COREDAC_LIBRARIES
     strongname_dac
     utilcode_dac
     unwinder_dac
+    gc_dac
     ${END_LIBRARY_GROUP} # End group of libraries that have circular references
 )
 
@@ -86,27 +111,19 @@ if(WIN32)
         uuid.lib
         user32.lib
         ${STATIC_MT_CRT_LIB}
+        ${STATIC_MT_VCRT_LIB}
     )
-
-    # ARM64_TODO: Enable this for Windows Arm64
-    if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM64)
-        list(APPEND COREDAC_LIBRARIES 
-          ${STATIC_MT_VCRT_LIB}
-        )
-    endif()
-
 else(WIN32)
     list(APPEND COREDAC_LIBRARIES
         mscorrc_debug
+        ${START_WHOLE_ARCHIVE} # force all PAL objects to be included so all exports are available  
         coreclrpal
+        ${END_WHOLE_ARCHIVE}
         palrt
     )
 endif(WIN32)
 
-target_link_libraries(mscordaccore ${COREDAC_LIBRARIES})
+target_link_libraries(mscordaccore PRIVATE ${COREDAC_LIBRARIES})
 
 # add the install targets
-install (TARGETS mscordaccore DESTINATION .)
-if(WIN32)
-    install (FILES ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/mscordaccore.pdb DESTINATION PDB)
-endif(WIN32)
+install_clr(mscordaccore)

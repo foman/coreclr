@@ -18,12 +18,8 @@ namespace System.Reflection {
     using System;
     using System.Runtime.Serialization;
     [Serializable]
-[System.Runtime.InteropServices.ComVisible(true)]
-#if FEATURE_CORECLR
-    public class TargetException : Exception {
-#else
+    [System.Runtime.InteropServices.ComVisible(true)]
     public class TargetException : ApplicationException {
-#endif //FEATURE_CORECLR
         public TargetException() : base() {
             SetErrorCode(__HResults.COR_E_TARGET);
         }

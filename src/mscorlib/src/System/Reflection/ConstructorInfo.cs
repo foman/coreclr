@@ -14,9 +14,6 @@ namespace System.Reflection
     using System.Runtime;
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.InteropServices;
-#if FEATURE_REMOTING
-    using System.Runtime.Remoting.Metadata;
-#endif //FEATURE_REMOTING
     using System.Runtime.Serialization;
     using System.Security;
     using System.Security.Permissions;
@@ -28,9 +25,6 @@ namespace System.Reflection
     [Serializable]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_ConstructorInfo))]
-#pragma warning disable 618
-    [PermissionSetAttribute(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-#pragma warning restore 618
     [System.Runtime.InteropServices.ComVisible(true)]
     public abstract class ConstructorInfo : MethodBase, _ConstructorInfo
     {
@@ -46,7 +40,6 @@ namespace System.Reflection
         protected ConstructorInfo() { }
         #endregion
 
-#if !FEATURE_CORECLR
         public static bool operator ==(ConstructorInfo left, ConstructorInfo right)
         {
             if (ReferenceEquals(left, right))
@@ -64,7 +57,6 @@ namespace System.Reflection
         {
             return !(left == right);
         }
-#endif // !FEATURE_CORECLR
 
         public override bool Equals(object obj)
         {
@@ -103,57 +95,6 @@ namespace System.Reflection
             return Invoke(BindingFlags.Default, null, parameters, null);
         }
         #endregion
-
-#if !FEATURE_CORECLR
-        #region COM Interop Support
-        Type _ConstructorInfo.GetType()
-        {
-            return base.GetType();
-        }
-        
-        Object _ConstructorInfo.Invoke_2(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
-        {
-            return Invoke(obj, invokeAttr, binder, parameters, culture);
-        }
-        
-        Object _ConstructorInfo.Invoke_3(Object obj, Object[] parameters)
-        {
-            return Invoke(obj, parameters);
-        }
-        
-        Object _ConstructorInfo.Invoke_4(BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
-        {
-            return Invoke(invokeAttr, binder, parameters, culture);
-        }
-        
-        Object _ConstructorInfo.Invoke_5(Object[] parameters)
-        {
-            return Invoke(parameters);
-        }
-
-        void _ConstructorInfo.GetTypeInfoCount(out uint pcTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _ConstructorInfo.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
-        {
-            throw new NotImplementedException();
-        }
-
-        void _ConstructorInfo.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
-        {
-            throw new NotImplementedException();
-        }
-
-        // If you implement this method, make sure to include _ConstructorInfo.Invoke in VM\DangerousAPIs.h and 
-        // include _ConstructorInfo in SystemDomain::IsReflectionInvocationMethod in AppDomain.cpp.
-        void _ConstructorInfo.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
-        {
-            throw new NotImplementedException();
-        }
-        #endregion
-#endif
     }
 
     [Serializable]
@@ -207,7 +148,6 @@ namespace System.Reflection
 
         internal INVOCATION_FLAGS InvocationFlags
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 if ((m_invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_INITIALIZED) == 0)
@@ -263,7 +203,6 @@ namespace System.Reflection
         #endregion
 
         #region Constructor
-        [System.Security.SecurityCritical]  // auto-generated
         internal RuntimeConstructorInfo(
             RuntimeMethodHandleInternal handle, RuntimeType declaringType, RuntimeTypeCache reflectedTypeCache,
             MethodAttributes methodAttributes, BindingFlags bindingFlags)
@@ -278,40 +217,9 @@ namespace System.Reflection
         }
         #endregion
 
-#if FEATURE_REMOTING
-        #region Legacy Remoting Cache
-        // The size of CachedData is accounted for by BaseObjectWithCachedData in object.h.
-        // This member is currently being used by Remoting for caching remoting data. If you
-        // need to cache data here, talk to the Remoting team to work out a mechanism, so that
-        // both caching systems can happily work together.
-        private RemotingMethodCachedData m_cachedData;
-
-        internal RemotingMethodCachedData RemotingCache
-        {
-            get
-            {
-                // This grabs an internal copy of m_cachedData and uses
-                // that instead of looking at m_cachedData directly because
-                // the cache may get cleared asynchronously.  This prevents
-                // us from having to take a lock.
-                RemotingMethodCachedData cache = m_cachedData;
-                if (cache == null)
-                {
-                    cache = new RemotingMethodCachedData(this);
-                    RemotingMethodCachedData ret = Interlocked.CompareExchange(ref m_cachedData, cache, null);
-                    if (ret != null)
-                        cache = ret;
-                }
-                return cache;
-            }
-        }
-        #endregion
-#endif //FEATURE_REMOTING
-
         #region NonPublic Methods
         RuntimeMethodHandleInternal IRuntimeMethodInfo.Value
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return new RuntimeMethodHandleInternal(m_handle);
@@ -399,28 +307,27 @@ namespace System.Reflection
         public override Object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException("attributeType");
+                throw new ArgumentNullException(nameof(attributeType));
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsDefined(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException("attributeType");
+                throw new ArgumentNullException(nameof(attributeType));
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
 
             return CustomAttribute.IsDefined(this, attributeRuntimeType);
         }
@@ -435,7 +342,6 @@ namespace System.Reflection
         #region MemberInfo Overrides
         public override String Name
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get { return RuntimeMethodHandle.GetName(this); }
         }
 [System.Runtime.InteropServices.ComVisible(true)]
@@ -459,7 +365,6 @@ namespace System.Reflection
 
         public override int MetadataToken
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get { return RuntimeMethodHandle.GetMethodDef(this); }
         }
         public override Module Module
@@ -477,7 +382,6 @@ namespace System.Reflection
         // This seems to always returns System.Void.
         internal override Type GetReturnType() { return Signature.ReturnType; } 
         
-        [System.Security.SecuritySafeCritical]  // auto-generated
         internal override ParameterInfo[] GetParametersNoCopy()
         {
             if (m_parameters == null)
@@ -534,7 +438,7 @@ namespace System.Reflection
         internal static void CheckCanCreateInstance(Type declaringType, bool isVarArg)
         {
             if (declaringType == null)
-                throw new ArgumentNullException("declaringType");
+                throw new ArgumentNullException(nameof(declaringType));
             Contract.EndContractBlock();
             
             // ctor is ReflectOnly
@@ -562,12 +466,6 @@ namespace System.Reflection
             // ctor is generic or on a generic class
             else if (declaringType.ContainsGenericParameters)
             {
-#if FEATURE_LEGACYNETCF
-                if (CompatibilitySwitches.IsAppEarlierThanWindowsPhone8)
-                    throw new ArgumentException(
-                        String.Format(CultureInfo.CurrentUICulture, Environment.GetResourceString("Acc_CreateGenericEx"), declaringType));
-                else
-#endif
                 throw new MemberAccessException(
                     String.Format(CultureInfo.CurrentUICulture, Environment.GetResourceString("Acc_CreateGenericEx"), declaringType));
             }
@@ -588,7 +486,6 @@ namespace System.Reflection
             throw new TargetException();
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [DebuggerStepThroughAttribute]
         [Diagnostics.DebuggerHidden]
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
@@ -615,26 +512,10 @@ namespace System.Reflection
 
             if (obj != null)
             {
-
-#if FEATURE_CORECLR
                 // For unverifiable code, we require the caller to be critical.
                 // Adding the INVOCATION_FLAGS_NEED_SECURITY flag makes that check happen
                 invocationFlags |= INVOCATION_FLAGS.INVOCATION_FLAGS_NEED_SECURITY;
-#else // FEATURE_CORECLR
-                new SecurityPermission(SecurityPermissionFlag.SkipVerification).Demand();
-#endif // FEATURE_CORECLR
-
             }
-
-#if !FEATURE_CORECLR
-            if ((invocationFlags &(INVOCATION_FLAGS.INVOCATION_FLAGS_RISKY_METHOD | INVOCATION_FLAGS.INVOCATION_FLAGS_NEED_SECURITY)) != 0) 
-            {
-                if ((invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_RISKY_METHOD) != 0)
-                    CodeAccessPermission.Demand(PermissionType.ReflectionMemberAccess);
-                if ((invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_NEED_SECURITY) != 0)
-                    RuntimeMethodHandle.PerformSecurityCheck(obj, this, m_declaringType, (uint)m_invocationFlags);
-            }
-#endif // !FEATURE_CORECLR
 
             Signature sig = Signature;
 
@@ -658,7 +539,6 @@ namespace System.Reflection
         }
         
 
-        [System.Security.SecuritySafeCritical] // overrides SC member
 #pragma warning disable 618
         [ReflectionPermissionAttribute(SecurityAction.Demand, Flags = ReflectionPermissionFlag.MemberAccess)]
 #pragma warning restore 618
@@ -672,17 +552,17 @@ namespace System.Reflection
 
         public override bool IsSecurityCritical
         {
-            get { return RuntimeMethodHandle.IsSecurityCritical(this); }
+            get { return true; }
         }
 
         public override bool IsSecuritySafeCritical
         {
-            get { return RuntimeMethodHandle.IsSecuritySafeCritical(this); }
+            get { return false; }
         }
 
         public override bool IsSecurityTransparent
         {
-            get { return RuntimeMethodHandle.IsSecurityTransparent(this); }
+            get { return false; }
         }
 
         public override bool ContainsGenericParameters
@@ -695,7 +575,6 @@ namespace System.Reflection
         #endregion
 
         #region ConstructorInfo Overrides
-        [System.Security.SecuritySafeCritical]  // auto-generated
         [DebuggerStepThroughAttribute]
         [Diagnostics.DebuggerHidden]
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
@@ -718,18 +597,6 @@ namespace System.Reflection
                     throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_APIInvalidForCurrentContext", FullName));
             }
 #endif
-
-#if !FEATURE_CORECLR
-            if ((invocationFlags & (INVOCATION_FLAGS.INVOCATION_FLAGS_RISKY_METHOD | INVOCATION_FLAGS.INVOCATION_FLAGS_NEED_SECURITY | INVOCATION_FLAGS.INVOCATION_FLAGS_IS_DELEGATE_CTOR)) != 0) 
-            {
-                if ((invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_RISKY_METHOD) != 0) 
-                    CodeAccessPermission.Demand(PermissionType.ReflectionMemberAccess);
-                if ((invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_NEED_SECURITY)  != 0) 
-                    RuntimeMethodHandle.PerformSecurityCheck(null, this, m_declaringType, (uint)(m_invocationFlags | INVOCATION_FLAGS.INVOCATION_FLAGS_CONSTRUCTOR_INVOKE));
-                if ((invocationFlags & INVOCATION_FLAGS.INVOCATION_FLAGS_IS_DELEGATE_CTOR) != 0)
-                    new SecurityPermission(SecurityPermissionFlag.UnmanagedCode).Demand();
-            }
-#endif // !FEATURE_CORECLR
 
             // get the signature
             Signature sig = Signature;
@@ -757,11 +624,10 @@ namespace System.Reflection
         #endregion
     
         #region ISerializable Implementation
-        [System.Security.SecurityCritical]  // auto-generated
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
-                throw new ArgumentNullException("info");
+                throw new ArgumentNullException(nameof(info));
             Contract.EndContractBlock();
             MemberInfoSerializationHolder.GetSerializationInfo(
                 info,
@@ -785,5 +651,4 @@ namespace System.Reflection
         }
        #endregion
     }
-
 }
